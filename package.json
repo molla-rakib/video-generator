@@ -6,14 +6,28 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "studio": "remotion studio remotion/index.ts",
+    "stills": "node scripts/render-stills.mjs",
+    "render": "remotion render remotion/index.ts",
+    "media:samples": "node scripts/fetch-sample-media.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.14.0",
+    "@remotion/google-fonts": "4.0.547",
+    "@remotion/player": "4.0.547",
+    "@remotion/transitions": "4.0.547",
     "next": "16.4.6",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "remotion": "4.0.547",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@remotion/bundler": "4.0.547",
+    "@remotion/cli": "4.0.547",
+    "@remotion/renderer": "4.0.547",
     "@tailwindcss/turbopack": "4.3.3",
     "@types/node": "^20",
     "@types/react": "^19",
