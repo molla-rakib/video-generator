@@ -1,0 +1,19 @@
+{
+  "name": "@studio/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@studio/shared": "0.1.0",
+    "@studio/timeline": "0.1.0",
+    "mongoose": "9.13.1",
+    "zod": "4.6.7",
+    "@studio/media": "0.1.0"
+  }
+}

@@ -1,474 +1,1007 @@
-# StoryMotion: Documentary Video Generator — Product & Build Plan
+# MASTER DEVELOPMENT PROMPT — DOCUMENTARY STUDIO
 
-> Working name. **Main goal: anyone can make a real, well-researched documentary video** by describing the topic or story.
-> Exported in **16:9, 9:16, 1:1 and 4:5**. Built on **Next.js 16 + Claude API + Remotion**.
+You are a Senior Full-Stack Architect, Product Designer, AI Integration Engineer, and Video Production Systems Engineer.
 
-## ⚡ Direction update (Nov 2026): 2D cartoon animation first
+I want you to build a professional application called **Documentary Studio**.
 
-The visual engine is now **2D cartoon animation rendered by Remotion**, not photo slideshows. Claude writes an animation plan (cast, actions, props, backgrounds, camera, speech bubbles, counters, timelines); Remotion draws and animates every frame. Research, fact-checking and sources stay. Real photos remain an optional extra (section 8), not the default.
+This is not a generic AI dashboard. It is an AI-assisted documentary production workspace that helps ordinary people create professional documentary-style videos without needing advanced video editing or sound engineering knowledge.
 
-**Built so far**
-- Animation engine (`remotion/anim/`): rigged characters (8 outfits, 8 hair styles, hats, expressions, blinking, lip movement, walk/run/wave/point/talk/cheer/think/jump/dance…), 23 animated props, 13 backgrounds × day/sunset/night with parallax, camera moves, particle effects, speech/thought bubbles, titles, counters, timelines, 4 art styles (flat, storybook, bold, retro).
-- AI director (`lib/ai/director.ts`, `/api/generate`): prompt → full animated video via Claude (web-search research, tool-based output, Zod validation + automatic repair), plus "edit with AI".
-- UI: Create screen (story box + style/format/length/fact-check presets, examples gallery) and Studio (player, ratio switch, scene strip, Edit with AI, script with fact badges, sources, instant style switch, undo, MP4 export in 4 ratios × 720p–4K via Remotion's renderer).
+The application should guide users through the entire production process, from a simple story idea to a finished documentary video.
 
-**Next**: narration voice (TTS) + music, more characters/props/backgrounds, accounts + database (projects are in localStorage today), Remotion Lambda for cloud export.
+Your responsibility is to design and implement a reliable, scalable, maintainable application with an exceptionally simple user experience.
 
-The sections below are the original plan; where they describe photo-first visuals, read "animated scenes" instead.
+Do not build a complicated interface just because the underlying technology is complex.
+
+A normal person with no technical or video-editing experience should be able to understand and use this application.
 
 ---
 
-## 1. Vision
+# 1. PRODUCT VISION
 
-A user types: *"A 5-minute documentary about the rise and fall of the Silk Road"*, or pastes their own script or research notes.
+Documentary Studio follows one central production principle:
 
-The system then:
-1. **Researches** the topic on the web and collects facts **with sources**
-2. Writes a documentary **script** with chapters and narration
-3. Finds **real media** (archival photos, public-domain images, stock footage, maps) and builds animated graphics (timelines, maps, charts)
-4. **Fact-checks** the script against sources
-5. Assembles a narrated, captioned, music-scored documentary
-6. Exports it for YouTube (16:9), Shorts/Reels/TikTok (9:16), Instagram feed (4:5 and 1:1), all from one project
+**AUDIO FIRST → VIDEO SECOND → FINAL RENDER**
 
-**Design principles**
-- **Zero required decisions.** Every setting defaults to **Auto**.
-- **Truth first.** Every factual claim is traceable to a source the user can see.
-- **Real media first; AI imagery is labelled.** AI imagery is used only for reconstructions and illustrations, and is always marked as such.
-- **One project, every format.** Aspect ratio is an export choice, not a rebuild.
+The application must manage the complete documentary production workflow:
 
-**Who it's for**
-1. YouTube documentary and essay creators (history, science, true crime, business stories)
-2. Educators and students (history lessons, science explainers)
-3. Journalists, NGOs, local historians (short-form docs for social)
-4. Brands (company history, impact stories, founder stories)
+1. User creates a documentary project.
+2. AI develops the story and narration.
+3. AI generates a structured master timeline.
+4. Audio assets are generated individually.
+5. User reviews and finalizes the audio.
+6. The final audio is locked.
+7. AI creates a visual storyboard based on the approved story and final audio.
+8. User generates or uploads visual assets.
+9. Remotion combines the visuals and final audio.
+10. User previews and renders the final documentary.
 
----
+The entire application must use a shared timeline system.
 
-## 2. "Connect Claude": how users get AI access
+Never generate the final video independently and then attempt to fit the audio afterward.
 
-A personal **Claude.ai Pro/Max subscription cannot power another website**. Third-party apps use the **Claude API** (API keys).
+The audio timeline is the source of truth for final video synchronization.
 
-| Option | User experience | Recommendation |
-|---|---|---|
-| **A. Platform-managed** (we hold the API key, user buys a plan/credits) | User connects *nothing*. Sign up → describe topic → documentary. | ✅ **Default** |
-| **B. Bring Your Own Key** (user pastes their Anthropic API key) | One extra step in Settings → Advanced | Phase 2 option for power users/agencies. Key encrypted, never sent to browser. |
+# 2. TECHNOLOGY STACK
 
----
+Use the following technologies:
 
-## 3. Core architecture
+### Frontend
 
-```
- Topic / story / script / own media
-          │
-          ▼
- ┌──────────────────────────────────────────────┐
- │  AI Pipeline (Claude + web search/fetch)     │
- │  Intake → Research → Script → Fact-check     │
- │  → Visual Director → Media Researcher        │
- │  → Motion Editor → QA Critic (vision)        │
- └───────────────────┬──────────────────────────┘
-                     ▼
-     DocSpec (JSON) + Source Ledger + Media Ledger
-                     │
-          ┌──────────┴──────────┐
-          ▼                     ▼
-  Remotion Player          Render Worker (Remotion Lambda)
-  (live preview,           → MP4 / WebM in 16:9 · 9:16 · 1:1 · 4:5
-   low-res proxies)          up to 4K, + SRT captions + sources list
-```
+- Next.js with App Router
+- React
+- TypeScript
+- Tailwind CSS
+- shadcn/ui
+- Lucide icons
 
-**Key decision:** Claude never writes code. It outputs a **DocSpec (validated JSON)**, which a fixed library of documentary-grade Remotion components plays back. That gives us reliability, chat editing, and correct layouts in every aspect ratio.
+### Backend
 
-Three ledgers travel with every project:
-- **Source Ledger:** every fact → URL, title, publisher, date, quote excerpt
-- **Media Ledger:** every image/clip → origin, license, author, attribution text, AI-generated yes/no
-- **Spec versions:** full history for undo and audit
+- Next.js Route Handlers for application APIs
+- Node.js background worker for long-running tasks
+- MongoDB
+- Mongoose or a well-structured MongoDB data access layer
+- Zod for schema validation
 
-### 3.1 DocSpec (simplified)
+### Video and Audio Processing
 
-```jsonc
-{
-  "version": 1,
-  "meta": { "title": "The Silk Road", "language": "en", "targetDurationSec": 300, "fps": 30 },
-  "style": { "preset": "history-classic", "grade": "warm-archival", "font": "Cormorant Garamond", "lowerThird": "serif-line" },
-  "voice": { "id": "deep-narrator-1", "pace": "measured" },
-  "music": { "mood": "epic-ancient", "duckUnderVoice": true },
-  "chapters": [
-    {
-      "id": "ch1",
-      "title": "A Road of Silk and Steel",
-      "scenes": [
-        {
-          "id": "s1",
-          "narration": "In 138 BC, a Chinese envoy named Zhang Qian set out west on a mission that would change the world.",
-          "claims": [{ "text": "Zhang Qian set out in 138 BC", "sourceIds": ["src3", "src7"], "status": "verified" }],
-          "visual": {
-            "type": "photo",
-            "mediaId": "m12",
-            "motion": { "kind": "ken-burns", "from": "wide", "to": "face-focus" },
-            "focusPoint": { "x": 0.62, "y": 0.35 }
-          },
-          "overlays": [
-            { "type": "lower-third", "title": "Zhang Qian", "subtitle": "Han dynasty envoy · c. 164–113 BC" },
-            { "type": "date-stamp", "text": "138 BC" }
-          ],
-          "caption": { "style": "documentary-clean" },
-          "transition": { "type": "dissolve", "durationSec": 0.8 }
-        },
-        {
-          "id": "s2",
-          "narration": "His route stretched over 6,000 kilometres, from Chang'an to the Mediterranean.",
-          "visual": {
-            "type": "map",
-            "region": "eurasia",
-            "route": [{ "place": "Xi'an" }, { "place": "Samarkand" }, { "place": "Antioch" }],
-            "animation": "draw-route",
-            "labels": true
-          }
-        }
-      ]
-    }
-  ],
-  "endCard": { "showSources": true, "showMediaCredits": true }
+- Remotion for programmatic video composition and rendering
+- FFmpeg for audio/video processing and media inspection
+- Whisper for audio transcription and dialogue timestamps
+
+### AI integrations
+
+Design provider adapters for:
+
+- Claude API for story development, script writing, structured timelines and storyboard generation.
+- VoiceStudio for voice generation where its supported local integration is available.
+- ElevenLabs for supported speech and sound-effect generation.
+- A configurable music generation provider.
+- Future image and video generation providers.
+
+Important:
+
+- Do not assume every provider has the same capabilities.
+- Do not invent API endpoints or integrations.
+- Read official documentation before implementing an integration.
+- If an integration requires an API key, make it configurable through application settings or environment variables.
+- Never expose API keys to the browser.
+- Support manual media upload as a fallback for every generation workflow.
+
+# 3. DESIGN SYSTEM AND UI/UX
+
+This is extremely important.
+
+The interface must be **WHITE THEMED**.
+
+Use shadcn/ui as the primary component library.
+
+### Visual direction
+
+Build a clean, modern, minimal, premium-looking application.
+
+Reference the usability of modern productivity applications rather than complicated professional video-editing software.
+
+Design requirements:
+
+- White background.
+- Light gray secondary surfaces.
+- Dark charcoal text.
+- Subtle borders.
+- Minimal shadows.
+- Rounded corners, but not excessively rounded.
+- Plenty of whitespace.
+- Clear typography.
+- Consistent spacing.
+- Simple icons.
+- Restrained accent color.
+- Excellent responsive behavior.
+
+Avoid:
+
+- Dark dashboards.
+- Excessive gradients.
+- Glassmorphism.
+- Unnecessary animations.
+- Too many cards.
+- Complicated navigation.
+- Tiny text.
+- Technical terminology in user-facing interfaces.
+- Overloaded dashboards.
+
+Use a consistent design system with shadcn/ui components.
+
+Recommended components:
+
+- Button
+- Card
+- Dialog
+- Sheet
+- Dropdown Menu
+- Tabs
+- Progress
+- Badge
+- Tooltip
+- Select
+- Input
+- Textarea
+- Alert Dialog
+- Skeleton
+- Scroll Area
+- Separator
+- Table
+
+### UX philosophy
+
+The application should behave like a guided assistant.
+
+For example, instead of showing:
+
+"Create audio assets from timeline manifest"
+
+Show:
+
+"Let's create the sounds for your documentary."
+
+Instead of:
+
+"Validate timeline schema"
+
+Show:
+
+"Check your production plan."
+
+Use simple language throughout the application.
+
+Every important action should have:
+
+- A clear title.
+- A short explanation.
+- One obvious primary action.
+- Helpful feedback.
+- An understandable error message.
+
+Do not expose technical JSON or API configurations to normal users unless they explicitly open an advanced section.
+
+Use tooltips and short explanations where needed.
+
+# 4. APPLICATION STRUCTURE
+
+Create the following main pages:
+
+1. Dashboard
+2. New Project
+3. Project Overview
+4. Story Director
+5. Audio Production
+6. Audio Review
+7. Visual Storyboard
+8. Video Production
+9. Media Library
+10. Settings
+
+The application should use a project-based workspace.
+
+Each documentary project must have its own:
+
+- Story
+- Scripts
+- Master timeline
+- Audio assets
+- Visual assets
+- Storyboard
+- Rendered videos
+- Production history
+
+# 5. DASHBOARD
+
+Create a simple dashboard.
+
+The user should immediately understand what is happening with their projects.
+
+Include:
+
+- Welcome heading.
+- Create New Documentary button.
+- Recent projects.
+- Project thumbnails.
+- Project titles.
+- Creation dates.
+- Current production stage.
+- Progress indicators.
+- Last updated information.
+
+Use simple production statuses:
+
+- Draft
+- Story Approved
+- Audio In Progress
+- Audio Review
+- Audio Locked
+- Video In Progress
+- Ready to Render
+- Completed
+- Failed
+
+Do not overload the dashboard with analytics.
+
+The main purpose is to help users continue working on their documentaries.
+
+# 6. PROJECT CREATION
+
+When a user clicks "Create New Documentary", show a simple guided form.
+
+Collect:
+
+- Documentary title.
+- Topic or initial story idea.
+- Preferred language.
+- Approximate video duration.
+- Video aspect ratio.
+- Visual style.
+- Narration preference.
+
+Allow users to start with only a title and story idea.
+
+Suggested aspect ratios:
+
+- 16:9
+- 9:16
+- 1:1
+
+Suggested visual styles:
+
+- Cinematic Realism
+- Documentary
+- Historical
+- Minimalist
+- Dramatic
+- Educational
+
+After project creation, guide the user to the Story Director.
+
+# 7. STORY DIRECTOR
+
+This is the starting point of documentary production.
+
+The user should be able to provide:
+
+- A rough story.
+- A topic.
+- Research notes.
+- An existing script.
+- A simple idea.
+
+AI should help develop it into a structured documentary.
+
+### Features
+
+1. Improve Story
+2. Develop Documentary Structure
+3. Generate Narration Script
+4. Generate Scene Breakdown
+5. Suggest Emotional Progression
+6. Generate Master Timeline
+7. Edit and Regenerate Individual Sections
+
+AI-generated content should be editable before approval.
+
+The user must approve the story and production plan before audio generation.
+
+### Story output
+
+Generate:
+
+- story.md
+- narration.md
+- master-timeline.json
+- visual-storyboard.json (initial draft, to be refined after audio is locked)
+
+Use structured AI output and validate it with Zod.
+
+Do not rely on unstructured text when generating production data.
+
+# 8. MASTER TIMELINE ENGINE
+
+This is the most important technical component of the entire application.
+
+Create a reusable timeline engine.
+
+The master timeline must contain all planned production events.
+
+It should support:
+
+### Project metadata
+
+- Project ID
+- Title
+- FPS
+- Resolution
+- Aspect ratio
+- Language
+- Estimated duration
+
+### Audio events
+
+- Narration
+- Dialogue
+- Sound effects
+- Ambient sounds
+- Music
+- Silence or intentional pauses
+
+Each audio event should contain:
+
+- Unique ID
+- Type
+- Description
+- Generation prompt
+- Start time
+- Planned end time
+- Actual duration
+- Generated asset path
+- Provider
+- Generation settings
+- Status
+- Approval state
+
+### Video scenes and shots
+
+Each scene should contain:
+
+- Scene ID
+- Scene title
+- Start time
+- End time
+- Description
+- Emotional purpose
+- Assigned shots
+
+Each shot should contain:
+
+- Shot ID
+- Start time
+- End time
+- Visual description
+- Image/video generation prompt
+- Camera movement
+- Transition
+- Assigned media asset
+- Status
+
+### Important timing rules
+
+Store time in seconds internally.
+
+Use milliseconds or frame positions only where appropriate.
+
+Never confuse planned duration with actual generated duration.
+
+Generated narration may be longer or shorter than estimated.
+
+The application must reconcile actual audio durations before the final audio is locked.
+
+Use the project's FPS consistently.
+
+For Remotion:
+
+frame = Math.round(seconds \* fps)
+
+Build validation for:
+
+- Missing assets.
+- Invalid timestamps.
+- Negative durations.
+- Incorrect asset references.
+- Unassigned video shots.
+- Missing narration.
+- Timeline inconsistencies.
+- Audio/video duration mismatches.
+
+Create a versioned timeline system.
+
+When a user modifies the approved timeline, track the change and identify which generated assets may need updating.
+
+Do not silently overwrite approved production data.
+
+# 9. AUDIO PRODUCTION
+
+This department generates and manages all audio assets.
+
+Organize audio into five categories:
+
+1. Narration
+2. Dialogue
+3. Sound Effects
+4. Ambience
+5. Background Music
+
+Each asset must be individually identifiable.
+
+Example IDs:
+
+- VO_001
+- DIALOGUE_001
+- SFX_001
+- AMBIENCE_001
+- MUSIC_001
+
+### Audio generation interface
+
+For each asset display:
+
+- Asset name.
+- Type.
+- Description.
+- Prompt.
+- Start time.
+- Expected duration.
+- Provider.
+- Generation status.
+- Preview button.
+- Regenerate button.
+- Upload replacement button.
+
+Support:
+
+- Generate one asset.
+- Generate all pending assets.
+- Regenerate selected assets.
+- Retry failed generation.
+- Preview generated files.
+- Upload manually generated files.
+
+Show generation progress clearly.
+
+Do not block the entire application while generating audio.
+
+Use background jobs.
+
+### Provider architecture
+
+Create a provider adapter architecture.
+
+Example:
+
+interface SpeechProvider {
+generateSpeech(input: SpeechInput): Promise<GeneratedAsset>;
 }
-```
-
-Scene `visual.type` options: `photo`, `video-clip`, `map`, `timeline`, `chart`, `document` (newspaper/letter with highlight), `quote-card`, `split-compare`, `illustration` (AI, labelled), `title-card`, `user-media`.
-
----
-
-## 4. The AI pipeline: "skills" under the hood
-
-All calls use **`claude-opus-5-5`** with adaptive thinking, with effort tuned per stage. Structured stages use **structured outputs** so the JSON always matches our schemas. Research uses Claude's **web search and web fetch server tools**. Visual checks use **Claude vision**. Refusals (`stop_reason: "refusal"`) are handled with server-side fallbacks and a friendly message.
-
-| # | Stage | What it does | Effort |
-|---|---|---|---|
-| 0 | **Intake** | Topic/story/script + presets → brief: subject, angle, audience, length, tone, doc genre. Asks **at most 1 question**, only if truly ambiguous. | low |
-| 1 | **Researcher** | Web search + fetch → **Research Dossier**: key facts, dates, people, places, numbers, competing viewpoints, each with sources. Prefers primary/reputable sources. | high |
-| 2 | **Scriptwriter** | Dossier → chapters, narrative arc (hook → context → conflict → turning point → resolution), narration lines tagged with claim IDs | high |
-| 3 | **Fact-checker** | Re-checks every claim against its sources → `verified` / `disputed` / `unsupported`. Rewrites or flags weak claims. Disputed facts are phrased carefully ("historians disagree…"). | high |
-| 4 | **Visual Director** | For each line, decides what the viewer sees: archival photo, map, timeline, chart, clip, quote card… plus overlays (lower-thirds, dates, place names) | medium |
-| 5 | **Media Researcher** | Searches licensed sources (§8) for each scene, then uses **vision to score candidates** for relevance, quality and era-accuracy. Picks the best image, keeps 3 alternatives, sets focus points for Ken Burns. Falls back to labelled AI illustration only when nothing real fits. | medium |
-| 6 | **Motion Editor** | Timing against narration audio, camera moves, transitions, music cues → final DocSpec | medium |
-| 7 | **QA Critic** (vision) | Renders still frames per scene **in each chosen ratio (16:9, 9:16, 1:1, 4:5)** → checks text overlap, faces cut off, unreadable captions, wrong-era images, repetition → fixes | medium |
-| 8 | **Editor** (chat) | User message + spec → minimal JSON Patch ("use a different photo here", "shorten chapter 2", "add a map of Rome") | low/medium |
-
-**The QA Critic (stage 7) means the system checks every frame before the user sees it**, in every aspect ratio.
-
-### 4.1 Skill packs (versioned in repo)
-
-```
-/skills
-  /core          documentary-storytelling.md, narration-voice.md, pacing.md,
-                 sourcing-standards.md, fact-checking.md, ethics.md,
-                 typography.md, layout-safe-zones.md (16:9 / 9:16 / 1:1 / 4:5)
-  /genres        history.md, biography.md, nature.md, science.md, true-crime.md,
-                 business-story.md, travel-culture.md, investigative.md, short-doc-social.md
-  /styles        history-classic.md, modern-clean.md, netflix-dark.md, archival-film.md,
-                 nature-cinematic.md, newsroom.md, minimal-explainer.md
-  /platforms     youtube-longform.md, shorts-reels-tiktok.md, instagram-feed-4x5.md, linkedin.md
-  /catalog.json  auto-generated list of components, overlays, map regions, styles the AI may use
-```
-
-- Presets choose which skill files are loaded (prompt-cached, so cheap after the first call).
-- The AI can only use components in `catalog.json`, so it never invents a missing component.
-- Each genre has an **eval set** of sample topics with scoring for accuracy, pacing, visual match and source quality.
-
----
-
-## 5. Presets: what users pick (all optional, default Auto)
-
-| Preset | Choices | Default |
-|---|---|---|
-| **Documentary type** | History, Biography, Nature, Science, True crime, Business/company story, Travel & culture, Investigative, Short doc (social) | Auto-detect |
-| **Visual style** | History Classic, Modern Clean, Dark Cinematic, Archival Film (grain/sepia), Nature Cinematic, Newsroom, Minimal Explainer | Auto from genre |
-| **Aspect ratio** | **16:9**, **9:16**, **1:1**, **4:5**, or "All formats" | 16:9 |
-| **Length** | 60s, 3 min, 5 min, 10 min, 20 min, Auto | Auto |
-| **Narrator voice** | ~12 curated documentary voices (deep/warm/neutral, male/female, accents), or "no narration (text-led)" | Matched to genre |
-| **Music** | Epic, Somber, Mysterious, Hopeful, Tension, Ambient, None | Auto |
-| **Captions** | Documentary clean, Bold social (word highlight), None | Clean (16:9), Bold (9:16 / 4:5) |
-| **Sources on screen** | End credits only / small on-screen citations / both | End credits |
-| **Media policy** | Real media only / Real + labelled AI illustrations | Real + labelled AI |
-| **Research depth** | Quick / Standard / Deep | Standard |
-| **Language** | 20+ languages | Detected |
-| **Brand kit** *(Pro)* | Logo, colors, fonts, intro/outro | Off |
-
-Presets show as friendly chips under the input box with thumbnail/preview pickers, never plain dropdowns.
-
----
-
-## 6. Aspect ratios: all four are first-class
-
-| Ratio | Size @1080 | Use | Layout notes |
-|---|---|---|---|
-| **16:9** | 1920×1080 | YouTube, websites, TV | Classic doc layout: lower-thirds bottom-left, captions bottom-center |
-| **9:16** | 1080×1920 | Shorts, Reels, TikTok | Media centered/cropped on focus point; big captions in the middle-lower third; avoid platform UI zones (top 12%, bottom 20%, right edge) |
-| **1:1** | 1080×1080 | Feed posts, LinkedIn | Tighter crops; overlays stacked |
-| **4:5** | 1080×1350 | Instagram/Facebook feed (most screen space in feed) | Top title band + media + caption band; lower-thirds move above captions |
-
-How it works:
-- Every overlay uses **anchors + safe zones per ratio**, never fixed pixels (`useLayout(ratio)`).
-- Every image/clip has a **focus point** (picked by the Media Researcher with vision), so crops keep the subject in frame in every ratio. It can be overridden by dragging in the editor.
-- Maps and timelines have **ratio-specific layouts** (horizontal timeline in 16:9, vertical in 9:16/4:5).
-- **Ratio toggle in the editor** previews all four instantly. The QA Critic checks all chosen ratios.
-- **Export all formats in one click**, rendered in parallel.
-- Resolutions: 720p, 1080p, 1440p, 4K for each ratio (e.g. 4:5 4K = 2160×2700).
-
----
-
-## 7. UX: screen by screen
-
-### 7.1 Create
-- Large input: **"What's your documentary about?"**. Accepts a topic, a story, a full script, or pasted research notes/links.
-- 🎙 Voice input · 📎 Attach your own photos/videos/documents/PDFs (Claude reads them as sources/media)
-- Preset chips (§5), example topics ("The 1906 San Francisco earthquake", "How Lagos became Africa's largest city"…)
-- **Create documentary**
-
-### 7.2 Research review (optional, skippable, one screen)
-- "Here's what I found": key facts as cards, each with source chips (favicon + publisher)
-- User can ✓ keep, ✗ remove, or ✎ add a fact/source
-- Users can also skip this and let it run on Auto
-- Shows warnings: "2 claims are disputed between sources"
-
-### 7.3 Generating (live, never a blank spinner)
-1. 🔎 Researching… (sources appear as they're found)
-2. ✍️ Writing script… (chapters stream in)
-3. ✅ Fact-checking…
-4. 🖼 Finding images & footage… (scene cards fill with real thumbnails)
-5. 🎬 Animating & narrating…
-6. 🔍 Final check (all formats)…
-7. **Ready**: auto-plays
-
-Targets: first scene card < 15s; 3-min doc playable < 2–3 min; longer docs stream chapter by chapter, so chapter 1 is playable while later chapters finish.
-
-### 7.4 Editor
-```
-┌──────────────────────────────────────────────┬──────────────────┐
-│                                              │ Tabs:            │
-│      ▶ Preview  [16:9][9:16][1:1][4:5]       │ 💬 Chat          │
-│                                              │ 📚 Sources       │
-│                                              │ 🖼 Media         │
-├──────────────────────────────────────────────┤ 📝 Script        │
-│ Ch1 ▸ [s1][s2][s3]  Ch2 ▸ [s4][s5] ...       │                  │
-│ ── narration waveform ── music ── captions ──│                  │
-└──────────────────────────────────────────────┴──────────────────┘
-```
-- **Chat edits:** "swap this photo for one of the actual ship", "add a map showing the route", "make chapter 3 more dramatic"
-- **Script tab:** edit narration like a document. Voice and timing regenerate for that line only. Each line shows its source badges and fact-check status.
-- **Media tab:** for the selected scene: alternatives, search, upload your own, drag the focus point, see license/credit
-- **Sources tab:** full source list, add/remove, re-check
-- Per-scene: regenerate visual, change motion (Ken Burns direction), change overlay
-- Undo/redo + version history, autosave
-- Mobile: preview + chat + script only
-
-### 7.5 Export
-- Pick ratios (any combination of **16:9 / 9:16 / 1:1 / 4:5**), resolution (720p–4K), format (MP4, WebM), fps (24 / 25 / 30)
-- Extras: SRT/VTT captions, **sources & credits PDF**, YouTube description with chapters + timestamps + citations, thumbnail images per ratio
-- **Shorts cut:** auto-generate a 30–60s 9:16 or 4:5 teaser from the long doc
-- Progress + notification when done
-
----
-
-## 8. Media sourcing & licensing (new core system)
-
-Real documentaries need real media. Each item is stored in the **Media Ledger** with license + attribution.
-
-| Source | Content | License notes |
-|---|---|---|
-| **Wikimedia Commons** | Historical photos, paintings, maps, documents | Mixed (PD, CC-BY, CC-BY-SA). Store each item's license and attribution, and skip non-free licenses. |
-| **Library of Congress, Smithsonian Open Access, NASA, NOAA, Europeana, national archives** | Archival photos, documents, space/nature | Mostly public domain / CC0. Verify each item. |
-| **Pexels / Pixabay APIs** | Modern stock photos & video clips | Free licenses. Store attribution anyway. |
-| **Paid stock APIs** (e.g. Storyblocks, Shutterstock): Phase 3 | Premium footage | Per-plan licensing cost |
-| **User uploads** | Their own footage, interviews, photos, PDFs | User confirms rights on upload |
-| **AI illustrations**: fallback | Reconstructions of scenes with no photos (ancient events etc.) | **Always labelled "Illustration"** on screen. Never photorealistic images of real people. |
-
-- **Vision scoring:** Claude checks each candidate for subject match, era accuracy, quality, watermarks and text in the image.
-- **No unlicensed scraping:** we only use sources with clear licenses via their APIs.
-- Auto-generated **credits end card** + downloadable credits file.
-- Previews use **low-res proxies**. Renders use full-resolution originals.
-
----
-
-## 9. Remotion documentary component library
-
-| Category | MVP | Later |
-|---|---|---|
-| **Photo motion** | Ken Burns (pan/zoom to focus point), slow push, 2.5D parallax (subject separated from background) | Depth-map parallax, photo colorize/restore filters |
-| **Video** | Clip player with trim, speed, color grade (`OffthreadVideo`) | Picture-in-picture, slow-mo |
-| **Maps** | World/continent maps (D3-geo + Natural Earth, public domain), animated route drawing, pins, region highlight, zoom to place | Historical borders by era, 3D globe spin |
-| **Timelines** | Horizontal/vertical animated timelines with events and photos | Era bands, parallel timelines |
-| **Charts** | Animated bar/line/counter ("6,000 km", "3 million people") | Pie, area, comparison |
-| **Documents** | Newspaper/letter/page with highlight + zoom on a line | Handwriting reveal, redaction effect |
-| **Overlays** | Lower-thirds (name/title), location stamp, date stamp, chapter titles, quote cards, "Illustration" label, on-screen citation | Brand kit variants |
-| **Comparison** | Split screen, before/after slider | Then-and-now morph |
-| **Looks** | Film grain, vignette, sepia/B&W, light leaks, letterbox | LUT-based grades |
-| **Transitions** | Dissolve, fade-to-black, film burn, whip pan, map zoom transition | Match-cuts |
-| **Animated 2D** | Icon/illustration scenes for concepts (from earlier plan) | Character explainers |
-
-Every component reads from the **style theme** (fonts, colors, grade, overlay design) and the **layout engine** (ratio-aware anchors, safe zones, focus-point cropping).
-
----
-
-## 10. Audio
-
-- **Narration:** high-quality TTS with documentary voices + **word-level timestamps** (captions sync, scene timing follows the voice). Line-level regeneration. Option to **record or upload your own voice**.
-- **Music:** royalty-free library tagged by mood/tempo/era, with chapter-level cues and auto-ducking under narration.
-- **Ambience & SFX:** wind, crowds, sea, city, typewriter, camera shutter. Attached automatically based on the scene.
-- **No cloning of real people's voices** without verified consent.
-
----
-
-## 11. Rendering & export
-
-- **Preview:** `@remotion/player` in browser with low-res proxies; chapters load lazily for long docs.
-- **Final render:** **Remotion Lambda** (`renderMediaOnLambda`) splits long videos into parallel chunks, so a 20-min doc renders in minutes. One job per ratio, run in parallel.
-- **QA stills:** `renderStill` per scene per ratio for the vision check.
-- **Storage:** Cloudflare R2 / S3, signed URLs.
-- ⚠️ **Remotion license:** free for individuals and companies with up to 3 people. A commercial product beyond that needs a **Remotion company license**.
-
----
-
-## 12. Tech stack
-
-| Layer | Choice |
-|---|---|
-| App | **Next.js 16** (App Router, already set up), React 19, TypeScript |
-| UI | Tailwind v4 (already set up), shadcn/ui, Framer Motion |
-| State | Zustand + TanStack Query |
-| Schemas | Zod: DocSpec, Source Ledger, Media Ledger (shared by AI, UI, renderer) |
-| AI | `@anthropic-ai/sdk`, `claude-opus-5-5`, adaptive thinking, structured outputs, streaming, prompt caching, web search + web fetch tools, vision, refusal fallbacks |
-| Video | `remotion`, `@remotion/player`, `@remotion/lambda`, `@remotion/transitions`, `@remotion/google-fonts`, `@remotion/media-utils`, d3-geo |
-| Media APIs | Wikimedia Commons, Library of Congress, Smithsonian, NASA, Pexels, Pixabay |
-| Database | Postgres (Neon/Supabase) + Drizzle ORM |
-| Auth | Better Auth or Clerk |
-| Jobs | Inngest (multi-step, resumable pipeline: good fit for research → script → media → render) |
-| Storage | Cloudflare R2 / S3 |
-| Payments | Stripe |
-| Realtime | Server-Sent Events |
-| Monitoring | Sentry + PostHog |
-
-### 12.1 Data model
-- `users`: plan, credits, BYOK key (encrypted)
-- `projects`: title, owner, current spec version, ratios, thumbnail
-- `spec_versions`: DocSpec JSON, author (user/ai), triggering message
-- `sources`: project_id, url, title, publisher, date, excerpt, reliability score
-- `claims`: scene_id, text, source_ids, status (verified/disputed/unsupported)
-- `media_items`: origin, original URL, license, author, attribution, ai_generated, focus point, proxy URL, full URL
-- `chat_messages`, `render_jobs` (ratio, resolution, format, status, url), `credit_ledger`
-
-### 12.2 Folders
-```
-app/
-  (marketing)/page.tsx
-  (app)/create/page.tsx
-  (app)/project/[id]/page.tsx
-  api/generate/route.ts      SSE pipeline progress
-  api/edit/route.ts          chat edits
-  api/media/search/route.ts  media alternatives
-  api/render/route.ts        export
-lib/
-  ai/          stages (intake, research, script, factcheck, visual, media, motion, qa, editor), skill loader
-  spec/        DocSpec schema, patches, validators
-  media/       source adapters (wikimedia, loc, nasa, pexels…), licensing, proxies
-  render/      lambda client, stills
-remotion/
-  Root.tsx              compositions for 16:9, 9:16, 1:1, 4:5
-  DocFromSpec.tsx
-  components/           photo, video, map, timeline, chart, document, overlays, looks, transitions
-  themes/               style presets
-  layout/               anchors, safe zones, focus-point cropping
-skills/                 AI skill packs (§4.1)
-```
-
----
-
-## 13. Ethics, accuracy & safety (core to a documentary product)
-
-- **Every factual line links to sources.** Unsupported claims are flagged and never silently kept.
-- **Disputed facts** are shown to the user and phrased neutrally in narration.
-- **AI imagery is always labelled** on screen. No photorealistic AI images of real people. No fake "archival" footage.
-- **No deepfakes:** no face/voice synthesis of real people.
-- **Defamation guard:** true-crime/investigative scripts about living people get extra fact-check strictness and a warning to the user.
-- **Moderation** on inputs. Handle Claude refusals gracefully.
-- **Licensing:** only licensed media, full credits generated automatically.
-- **Transparency export:** sources + credits PDF with every video.
-
----
-
-## 14. Cost & limits (rough)
-
-- **Claude for a 5-min doc** (research with web search, script, fact-check, vision media scoring, QA): roughly **$2–5**. A 60s short doc is **under $1**. Prompt caching lowers repeat costs. Web search adds a small per-search fee.
-- **Render:** cents per 1080p minute per ratio on Lambda.
-- **TTS:** often the second-biggest cost. Depends on provider and length.
-- **Controls:** credit cost scales with length and research depth. Per-plan max length. Every call logged in `credit_ledger`.
-
-Suggested plans: **Free** (2 short docs/mo, 720p, watermark) · **Creator** (~$19/mo, up to 10-min docs, 1080p) · **Pro** (~$49/mo, 20-min docs, 4K, all-format batch export, brand kit) · **BYOK**.
-
----
-
-## 15. Roadmap
-
-### Phase 0: Foundations (week 1–2)
-- [ ] Add Remotion, Player and Anthropic SDK to the Next.js app
-- [ ] DocSpec + ledgers Zod schemas, 2 hand-written sample docs
-- [ ] `DocFromSpec` with layout engine rendering correctly in **16:9, 9:16, 1:1, 4:5**
-- [ ] Core components: Ken Burns photo, lower-third, date stamp, chapter title, captions, dissolve
-- [ ] Auth, Postgres, projects
-
-### Phase 1: MVP: "Topic → Documentary" (weeks 3–7)
-- [ ] Create screen + preset chips
-- [ ] Pipeline: Intake → Researcher (web search) → Scriptwriter → Fact-checker → Visual Director → Media Researcher (Wikimedia, LoC, NASA, Pexels) → Motion Editor
-- [ ] Narration TTS with word timestamps + documentary captions + music library
-- [ ] Components: maps with route drawing, timeline, counter/bar chart, quote card, archival look
-- [ ] Editor: preview with 4-ratio toggle, chapters/scene strip, chat edits, script tab with source badges, media alternatives
-- [ ] Export: MP4 1080p in **16:9 / 9:16 / 1:1 / 4:5**, credits end card, SRT
-- [ ] Media + Source ledgers, auto credits
-**Exit test:** a non-technical user makes a sourced 3-minute history documentary and exports it in 16:9 and 4:5 in under 10 minutes.
-
-### Phase 2: Quality & trust (weeks 8–11)
-- [ ] QA Critic vision pass across all ratios
-- [ ] Research review screen, disputed-claim handling, sources PDF
-- [ ] Focus-point editor, 2.5D parallax photos, video clips, document highlight component
-- [ ] Upload own media/voice, PDF/notes as sources
-- [ ] Shorts cut (auto teaser in 9:16 / 4:5)
-- [ ] YouTube description + chapters export
-- [ ] Stripe plans, BYOK
-
-### Phase 3: Long-form & premium (weeks 12–16)
-- [ ] 10–20 min docs with chapter-streamed generation
-- [ ] Historical borders maps, 3D globe, more styles and voices
-- [ ] Paid stock footage integration, 4K
-- [ ] Multi-language versions of the same doc (re-narrate + re-caption)
-
-### Phase 4: Pro & growth
-- [ ] Brand kits, team workspaces, review/approval comments
-- [ ] Public share pages, embed player
-- [ ] Public API
-- [ ] Interview mode: upload interview footage → auto-transcribe, pick soundbites, build doc around them
-
----
-
-## 16. Success metrics
-
-| Metric | Target |
-|---|---|
-| Claims with ≥1 reliable source | > 98% |
-| User-reported factual errors per video | < 0.2 |
-| Scenes with a real (non-AI) visual | > 85% |
-| Time to first scene card | < 15s |
-| 3-min doc playable | < 3 min |
-| QA issues per video reaching user (all ratios) | < 1 |
-| % generated videos exported | > 40% |
-| Week-1 retention | > 30% |
-
----
-
-## 17. Open decisions
-
-1. **Product name & brand** (documentary-flavored).
-2. **TTS provider:** voice quality for long narration, languages, word timestamps, price.
-3. **Stock footage:** free sources only at launch (recommended), paid APIs from Phase 3.
-4. **AI illustrations:** which image model, and default on or off (recommended: on, always labelled).
-5. **Render infra:** Remotion Lambda first (recommended), own workers later for cost.
-6. **Remotion company license** timing.
-7. **Launch genre focus:** recommend **History + Biography** first (best free archival media, strong YouTube demand), then Science/Nature.
+
+interface SoundEffectProvider {
+generateSoundEffect(input: SoundEffectInput): Promise<GeneratedAsset>;
+}
+
+interface MusicProvider {
+generateMusic(input: MusicInput): Promise<GeneratedAsset>;
+}
+
+Each provider must implement only the capabilities it actually supports.
+
+Store provider metadata and generation settings for reproducibility.
+
+# 10. AUDIO REVIEW
+
+This stage is where the user reviews and finalizes the complete soundtrack.
+
+Build a simple audio review workspace.
+
+It should contain:
+
+- Audio asset list.
+- Audio preview player.
+- Waveform visualization.
+- Timeline position.
+- Track categories.
+- Volume adjustment.
+- Fade-in and fade-out settings.
+- Asset replacement.
+- Asset trimming where supported.
+- Export controls.
+
+For the first version, do not attempt to recreate a full professional DAW.
+
+Instead:
+
+1. Organize audio assets.
+2. Allow basic timing and volume adjustments.
+3. Export audio stems or a suitable project for DaVinci Resolve Fairlight.
+4. Allow the user to mix professionally in Fairlight.
+5. Import the finalized master_audio.wav.
+
+The user must be able to mark the audio as:
+
+"Audio Locked"
+
+Once locked:
+
+- Record the master audio file.
+- Record its actual duration.
+- Record the audio version.
+- Preserve the approved audio assets and timeline.
+- Prevent accidental changes without explicit confirmation.
+
+This locked audio becomes the timing reference for video production.
+
+# 11. WHISPER INTEGRATION
+
+Integrate Whisper as an optional local transcription service.
+
+Its primary responsibilities:
+
+- Transcribe narration.
+- Generate dialogue timestamps.
+- Support subtitle generation.
+- Help align spoken words with the final audio.
+
+Use a configurable model size.
+
+Start with a small model suitable for CPU execution.
+
+Do not require a GPU.
+
+Consider a separate Python service or worker integration if that is the most reliable implementation.
+
+Keep Whisper optional.
+
+The application must continue working if Whisper is not installed.
+
+Important: Whisper is not a complete sound-event or emotional-analysis engine. Do not claim that it understands all music transitions, sound effects or emotional changes.
+
+# 12. VISUAL STORYBOARD
+
+This stage begins after the audio is locked.
+
+AI should use:
+
+- Original story.
+- Approved narration.
+- Master timeline.
+- Final audio duration.
+- Dialogue timestamps.
+- Scene descriptions.
+- Emotional progression.
+
+Generate a detailed visual storyboard.
+
+Each scene should be divided into individual shots.
+
+Example:
+
+Scene 1: The Storm
+
+Shot 1:
+
+- Duration: 5 seconds.
+- Wide exterior shot of a building during heavy rain.
+- Camera: Slow dolly toward the building.
+
+Shot 2:
+
+- Duration: 6 seconds.
+- Interior shot of a dark room.
+- Camera: Slow movement toward the desk.
+
+Shot 3:
+
+- Duration: 7 seconds.
+- Close-up of a worried student.
+- Camera: Slow push-in.
+
+The storyboard should provide:
+
+- Shot number.
+- Duration.
+- Start and end time.
+- Visual description.
+- AI generation prompt.
+- Camera movement.
+- Mood.
+- Lighting.
+- Reference to related audio events.
+
+Allow users to edit shots and prompts.
+
+# 13. VIDEO PRODUCTION
+
+Build the video production workspace using Remotion.
+
+The application must be able to:
+
+- Import images.
+- Import video footage.
+- Assign media to shots.
+- Preview each shot.
+- Preview complete scenes.
+- Set shot duration.
+- Add camera movements.
+- Add transitions.
+- Add subtitles.
+- Add text overlays.
+- Render the final video.
+
+Support:
+
+- 1080p.
+- 720p.
+- 16:9.
+- 9:16.
+- 1:1.
+
+Use Remotion for programmatic composition and rendering.
+
+Keep the renderer independent from the Next.js UI.
+
+The renderer should consume validated project data and media references.
+
+### Audio synchronization
+
+Use the locked master audio as the primary soundtrack.
+
+Do not accidentally play both the final mixed master audio and the original individual audio tracks.
+
+That would duplicate the sound.
+
+All visual shot positions must be derived from the approved timeline.
+
+Ensure the final composition duration matches the intended final audio duration.
+
+Provide a preview before rendering.
+
+Show render progress and errors.
+
+# 14. MEDIA LIBRARY
+
+Create a centralized media library.
+
+Organize:
+
+- Audio
+- Images
+- Videos
+- Generated assets
+- Uploaded assets
+- Rendered outputs
+
+Features:
+
+- Search.
+- Filter by type.
+- Preview.
+- Rename.
+- Replace.
+- Delete with confirmation.
+- Show which scene or project uses an asset.
+
+Store media files on local disk initially.
+
+Do not store large binary files directly inside MongoDB documents.
+
+Store file paths and metadata in MongoDB.
+
+Design a storage adapter so cloud storage can be added later.
+
+# 15. BACKEND ARCHITECTURE
+
+Separate the frontend, backend logic and production worker.
+
+Recommended architecture:
+
+apps/
+web/
+Next.js application
+
+worker/
+Node.js background worker
+
+packages/
+database/
+timeline/
+providers/
+media/
+renderer/
+shared/
+
+The worker should handle:
+
+- AI generation.
+- Audio generation.
+- Transcription.
+- Media processing.
+- Video rendering.
+
+Use a persistent job system.
+
+Jobs should have:
+
+- ID.
+- Project ID.
+- Job type.
+- Input.
+- Status.
+- Progress.
+- Error details.
+- Created time.
+- Updated time.
+
+Support:
+
+- Pending.
+- Running.
+- Completed.
+- Failed.
+- Cancelled.
+
+Implement retry logic where appropriate.
+
+Do not use in-memory-only job tracking for production tasks.
+
+For the first local version, use MongoDB-backed job records and a worker that safely claims pending jobs. Design it so a proper queue can be introduced later.
+
+# 16. MONGODB DATA MODELS
+
+Design clean MongoDB collections for:
+
+- Users (only if authentication is introduced)
+- Projects
+- Timelines
+- Scenes
+- Shots
+- AudioAssets
+- MediaAssets
+- GenerationJobs
+- RenderJobs
+- ProjectVersions
+- ProviderSettings
+
+Avoid putting the entire application state in one massive MongoDB document.
+
+Use references for large or frequently updated collections.
+
+Add indexes for project IDs, statuses and commonly queried fields.
+
+Use proper validation.
+
+# 17. SETTINGS
+
+Create a simple settings page.
+
+Include:
+
+- AI provider configuration.
+- API key management.
+- Default language.
+- Default FPS.
+- Default resolution.
+- Default aspect ratio.
+- Media storage location.
+- Whisper configuration.
+- Rendering preferences.
+
+API keys must be stored securely and never returned in normal frontend API responses.
+
+Show connection status for each provider.
+
+Allow the user to test a provider connection.
+
+Do not require every provider to be configured before creating a project.
+
+# 18. ERROR HANDLING AND USER FEEDBACK
+
+Professional software must handle failures properly.
+
+Examples:
+
+If audio generation fails:
+
+- Show which asset failed.
+- Explain the error in simple language.
+- Offer Retry.
+- Preserve all successful assets.
+
+If an asset is missing:
+
+- Identify the missing asset.
+- Show which scene needs it.
+
+If rendering fails:
+
+- Preserve the project.
+- Show useful error information.
+- Allow retry.
+
+Never silently lose project data.
+
+Use confirmation dialogs for destructive actions.
+
+Add autosave for user-edited scripts and prompts.
+
+Show loading states and progress indicators.
+
+# 19. DEVELOPMENT RULES
+
+Follow these rules strictly:
+
+1. Use TypeScript throughout.
+2. Keep components small and reusable.
+3. Use shadcn/ui consistently.
+4. Keep the interface white-themed.
+5. Keep user-facing language simple.
+6. Separate business logic from UI components.
+7. Validate all AI-generated structured data.
+8. Use server-side provider integrations.
+9. Never expose API keys.
+10. Never fake successful AI generation.
+11. Never show fake progress.
+12. Do not hard-code generated media paths.
+13. Keep the timeline engine independent.
+14. Make media processing resilient.
+15. Make every important action functional.
+16. Add proper empty, loading, success and error states.
+17. Avoid unnecessary dependencies.
+18. Write maintainable code with clear naming.
+19. Add tests for timeline validation and time conversion.
+20. Keep the application usable without configuring every external AI provider.
+
+If a provider is not configured, show a clear setup message and offer manual upload.
+
+Do not build decorative buttons that do nothing.
+
+# 20. IMPLEMENTATION STRATEGY
+
+Do not attempt to implement the entire application in one uncontrolled step.
+
+Work in phases.
+
+### Phase 1 — Foundation
+
+- Inspect the existing repository.
+- Set up Next.js and TypeScript.
+- Configure Tailwind and shadcn/ui.
+- Connect MongoDB.
+- Build the dashboard.
+- Build project creation.
+- Implement project persistence.
+- Design the master timeline schema.
+
+### Phase 2 — Story Director
+
+- Implement AI provider abstraction.
+- Integrate the selected AI provider.
+- Generate stories and narration.
+- Generate validated master timelines.
+- Add editing and approval.
+
+### Phase 3 — Audio Production
+
+- Implement provider adapters.
+- Implement audio generation jobs.
+- Add asset management.
+- Add preview and manual uploads.
+- Add retry and progress tracking.
+
+### Phase 4 — Audio Review
+
+- Implement audio review workspace.
+- Implement waveform visualization.
+- Export stems.
+- Support importing master_audio.wav.
+- Implement audio locking.
+
+### Phase 5 — Video Production
+
+- Implement storyboard generation.
+- Implement media assignment.
+- Build Remotion compositions.
+- Implement synchronized rendering.
+- Add subtitles and final export.
+
+### Phase 6 — Polish
+
+- Improve usability.
+- Test error scenarios.
+- Add backups and recovery.
+- Optimize rendering.
+- Add documentation.
+
+# 21. FIRST TASK — BEFORE WRITING CODE
+
+Start by inspecting the existing repository.
+
+Then provide:
+
+1. A concise architecture overview.
+2. The proposed folder structure.
+3. The MongoDB data model.
+4. The master timeline TypeScript/Zod schema.
+5. The development phases and dependencies.
+6. Any technical risks or decisions that need attention.
+
+Do not immediately generate hundreds of files.
+
+First establish a clean foundation and explain the implementation plan.
+
+After that, begin Phase 1.
+
+Implement actual working functionality, not just mockups.
+
+When completing each phase:
+
+- Run TypeScript checks.
+- Run linting.
+- Run relevant tests.
+- Fix errors before moving forward.
+- Summarize what was implemented.
+- Identify anything that still requires an external API key or manual setup.
+
+If you encounter a missing API key or unavailable external service, continue building the rest of the application with a clearly labeled integration placeholder and a working manual-upload alternative.
+
+# FINAL PRODUCT REQUIREMENT
+
+The final product should feel like a simple documentary production assistant.
+
+A normal user should be able to:
+
+1. Enter a story idea.
+2. Generate a documentary script.
+3. Generate narration, sound effects and music.
+4. Review and approve the audio.
+5. Generate a visual storyboard.
+6. Add generated or uploaded visuals.
+7. Render a synchronized documentary.
+
+The user should not need to understand JSON, APIs, frame calculations, audio codecs or Remotion.
+
+Those complexities should remain inside the application.
+
+**Build a professional production system with the simplicity of a modern productivity app.**
+
+The product name is Documentary Studio.
+
+The design theme is WHITE.
+
+The primary UI library is shadcn/ui.
+
+The core technical principle is AUDIO FIRST, VIDEO SECOND.
+
+Start by inspecting the repository and presenting the architecture plan.
+
+### ADDITIONAL FEATURE: Unified Timeline Editor
+
+Build a dedicated interactive Timeline Editor that displays all audio and video tracks together on one synchronized timeline.
+
+Requirements:
+
+- Separate tracks for narration, dialogue, SFX, ambience, music, video clips, images and subtitles.
+- Display audio waveforms and video clip thumbnails.
+- Shared time ruler and playhead.
+- Play, pause and timeline scrubbing.
+- Zoom in/out.
+- Drag and drop clips.
+- Adjust clip positions and durations.
+- Preview audio and video together.
+- Support track muting and visibility.
+- Keep all changes synchronized with the master timeline.
+- Use the locked master audio as the final soundtrack.
+
+Build this as a custom React interface. Remotion should handle video composition and rendering, not the interactive editing UI.
+
+The interface must remain simple enough for non-technical users.

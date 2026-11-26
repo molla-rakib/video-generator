@@ -42,3 +42,11 @@ next-env.d.ts
 
 # rendered stills / videos
 /out/
+
+# documentary studio
+/storage/
+node_modules
+.next
+
+# local secrets (encryption key for saved API keys)
+/.data/

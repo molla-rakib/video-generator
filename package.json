@@ -1,40 +1,31 @@
 {
-  "name": "video-generator",
+  "name": "documentary-studio",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint",
-    "typecheck": "tsc --noEmit",
-    "studio": "remotion studio remotion/index.ts",
-    "stills": "node scripts/render-stills.mjs",
-    "render": "remotion render remotion/index.ts",
-    "media:samples": "node scripts/fetch-sample-media.mjs"
-  },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^1.14.0",
-    "@remotion/google-fonts": "4.0.547",
-    "@remotion/player": "4.0.547",
-    "@remotion/transitions": "4.0.547",
-    "next": "16.4.6",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "remotion": "4.0.547",
-    "zod": "^4.6.7"
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "npm run dev -w @studio/web",
+    "dev:worker": "npm run dev -w @studio/worker",
+    "build": "npm run build -w @studio/web",
+    "start:worker": "npm run start -w @studio/worker",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "vitest run",
+    "db:up": "docker compose up -d mongo",
+    "db:down": "docker compose stop mongo"
   },
   "devDependencies": {
-    "@remotion/bundler": "4.0.547",
-    "@remotion/cli": "4.0.547",
-    "@remotion/renderer": "4.0.547",
-    "@tailwindcss/turbopack": "4.3.3",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.4.6",
-    "tailwindcss": "4.3.3",
-    "typescript": "^5"
+    "@types/node": "24.19.4",
+    "typescript": "5.9.3",
+    "vitest": "5.1.2"
+  },
+  "engines": {
+    "node": ">=20.9.0",
+    "npm": ">=10.0.0"
   }
 }

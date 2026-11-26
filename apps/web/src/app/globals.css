@@ -1,0 +1,104 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * Documentary Studio is a white-themed app by design. shadcn components ship
+ * `dark:` classes; tie them to a `.dark` class we never set, so a dark OS
+ * setting can't turn parts of the UI gray.
+ */
+@custom-variant dark (&:is(.dark *));
+
+@source "../../../../packages/*/src";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-soft: var(--brand-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-destructive-soft: var(--destructive-soft);
+  --color-surface: var(--surface);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: var(--font-inter), var(--font-bengali), ui-sans-serif, system-ui, sans-serif;
+  --font-bangla: var(--font-bengali), var(--font-inter), sans-serif;
+}
+
+:root {
+  --radius: 0.625rem;
+
+  /* Surfaces */
+  --background: oklch(1 0 0);
+  --surface: oklch(0.982 0.002 247); /* light gray secondary surface */
+  --card: oklch(1 0 0);
+  --popover: oklch(1 0 0);
+
+  /* Text: dark charcoal */
+  --foreground: oklch(0.24 0.008 260);
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+  --muted-foreground: oklch(0.52 0.012 260);
+
+  /* Primary actions are charcoal; the accent is used sparingly */
+  --primary: oklch(0.24 0.008 260);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.965 0.003 247);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.965 0.003 247);
+  --accent: oklch(0.96 0.004 247);
+  --accent-foreground: var(--foreground);
+
+  /* Restrained accent: a calm documentary blue */
+  --brand: oklch(0.52 0.14 255);
+  --brand-foreground: oklch(0.99 0 0);
+  --brand-soft: oklch(0.96 0.025 255);
+
+  /* Status colours */
+  --success: oklch(0.52 0.12 155);
+  --success-soft: oklch(0.96 0.03 155);
+  --warning: oklch(0.6 0.13 70);
+  --warning-soft: oklch(0.97 0.04 85);
+  --destructive: oklch(0.55 0.2 27);
+  --destructive-soft: oklch(0.97 0.02 27);
+
+  --border: oklch(0.92 0.004 260);
+  --input: oklch(0.9 0.004 260);
+  --ring: oklch(0.52 0.14 255 / 0.5);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    color-scheme: light;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+}

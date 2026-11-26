@@ -1,0 +1,13 @@
+# Local MongoDB for Documentary Studio. Runs on port 27018 so it never
+# collides with other MongoDB instances on this machine.
+services:
+  mongo:
+    image: mongo:8.2
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27018:27017"
+    volumes:
+      - documentary-studio-mongo:/data/db
+
+volumes:
+  documentary-studio-mongo:

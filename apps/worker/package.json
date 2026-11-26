@@ -1,0 +1,23 @@
+{
+  "name": "@studio/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@studio/database": "0.1.0",
+    "@studio/media": "0.1.0",
+    "@studio/providers": "0.1.0",
+    "@studio/renderer": "0.1.0",
+    "@studio/shared": "0.1.0",
+    "@studio/timeline": "0.1.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "tsx": "4.23.15"
+  }
+}
