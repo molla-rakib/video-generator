@@ -19,6 +19,8 @@ export const JOB_INPUTS = {
   "agent.generate": z.object({
     /** Optional extra direction from the user. */
     notes: z.string().trim().max(4000).default(""),
+    /** "continue" picks up where an earlier run stopped; "restart" throws that work away. */
+    mode: z.enum(["continue", "restart"]).default("continue"),
   }),
   /** Ask the AI agent to change part of the video. */
   "agent.revise": z.object({

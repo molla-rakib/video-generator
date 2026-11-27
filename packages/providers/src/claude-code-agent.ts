@@ -33,6 +33,14 @@ export interface AgentRunOptions {
   onEvent?: (event: AgentEvent) => void;
   shouldCancel?: () => boolean | Promise<boolean>;
   timeoutMs?: number;
+  /**
+   * Keep the conversation so it can be continued later. `resume: false`
+   * starts a new session with this id; `resume: true` continues it.
+   * Without this, the session isn't saved at all.
+   */
+  session?: { id: string; resume: boolean };
+  /** Called with the Claude process id as soon as it starts. */
+  onStart?: (pid: number) => void;
 }
 
 export interface AgentRunResult {
@@ -40,6 +48,35 @@ export interface AgentRunResult {
   summary: string;
   costUsd: number | null;
   turns: number | null;
+  /** The conversation's id (when the session was kept). */
+  sessionId: string | null;
+}
+
+/** The session asked for with `resume: true` no longer exists (expired, deleted, other machine). */
+export class SessionNotFoundError extends Error {
+  constructor(readonly sessionId: string) {
+    super(`Claude session ${sessionId} can't be resumed`);
+    this.name = "SessionNotFoundError";
+  }
+}
+
+/** Is a process still running? (Used to stop a Claude left behind by a crashed worker.) */
+export function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** Stop a leftover Claude process, if it's still running. */
+export function stopProcess(pid: number): void {
+  try {
+    if (isProcessAlive(pid)) process.kill(pid);
+  } catch {
+    // already gone
+  }
 }
 
 export class AgentCancelledError extends Error {
@@ -104,7 +141,7 @@ export async function runClaudeCode(options: AgentRunOptions): Promise<AgentRunR
       "-p",
       "--output-format", "stream-json",
       "--verbose",
-      "--no-session-persistence",
+      ...(options.session ? (options.session.resume ? ["--resume", options.session.id] : ["--session-id", options.session.id]) : ["--no-session-persistence"]),
       "--tools", "Read,Edit,Write,Glob,Grep",
       "--permission-mode", "acceptEdits",
       "--append-system-prompt-file", systemFile,
@@ -116,6 +153,8 @@ export async function runClaudeCode(options: AgentRunOptions): Promise<AgentRunR
 
     return await new Promise<AgentRunResult>((resolve, reject) => {
       const child = spawn(command, args, { cwd: options.cwd, env: cleanEnv(options.apiKey), stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      if (child.pid) options.onStart?.(child.pid);
+      let sessionId: string | null = options.session?.id ?? null;
       let buffer = "";
       let err = "";
       let result: { subtype?: string; is_error?: boolean; result?: string; total_cost_usd?: number; num_turns?: number } | null = null;
@@ -159,6 +198,7 @@ export async function runClaudeCode(options: AgentRunOptions): Promise<AgentRunR
         } else if (msg.type === "result") {
           result = msg as typeof result;
         }
+        if (typeof msg.session_id === "string") sessionId = msg.session_id;
       };
 
       child.stdout.on("data", (d: Buffer) => {
@@ -184,10 +224,15 @@ export async function runClaudeCode(options: AgentRunOptions): Promise<AgentRunR
         finish(() => {
           const r = result as typeof result;
           if (!r || r.is_error || r.subtype !== "success" || code !== 0) {
-            reject(explain([r?.result, err].filter(Boolean).join("\n").trim() || `exit code ${code}`, command));
+            const text = [r?.result, err].filter(Boolean).join("\n").trim();
+            if (options.session?.resume && /no conversation found|session.{0,40}(not found|does not exist)|could not (find|resume)/i.test(text)) {
+              reject(new SessionNotFoundError(options.session.id));
+              return;
+            }
+            reject(explain(text || `exit code ${code}`, command));
             return;
           }
-          resolve({ summary: (r.result ?? lastText).trim(), costUsd: r.total_cost_usd ?? null, turns: r.num_turns ?? null });
+          resolve({ summary: (r.result ?? lastText).trim(), costUsd: r.total_cost_usd ?? null, turns: r.num_turns ?? null, sessionId });
         });
       });
       child.stdin.on("error", () => {

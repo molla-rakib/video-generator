@@ -165,11 +165,60 @@ export async function sendHeartbeat(jobId: string, workerId: string): Promise<vo
   await GenerationJobModel.updateOne({ _id: jobId, lockedBy: workerId, status: "running" }, { $set: { heartbeatAt: new Date() } });
 }
 
+/**
+ * Jobs that pick up where they stopped (they keep their own progress), so an
+ * interruption should continue them rather than fail them. They're limited to
+ * a number of continuations so a job that keeps crashing still ends.
+ */
+export const RESUMABLE_JOB_TYPES = ["agent.generate"];
+const MAX_CONTINUATIONS = 10;
+
+/** Put an interrupted job back in the queue to continue (it may run once more). */
+async function continueLater(doc: GenerationJobDoc, message: string): Promise<void> {
+  await GenerationJobModel.updateOne(
+    { _id: doc._id, status: "running" },
+    {
+      $set: {
+        status: "pending",
+        lockedBy: null,
+        heartbeatAt: null,
+        runAfter: new Date(),
+        progressMessage: message,
+        maxAttempts: Math.max(doc.maxAttempts, doc.attempts + 1),
+      },
+    },
+  );
+}
+
+/**
+ * When a worker starts: jobs that an earlier worker on this computer was
+ * running were cut off (restart, crash, app closed). Resumable ones go back
+ * in the queue to continue; others follow the normal retry rules.
+ */
+export async function recoverInterruptedJobs(host: string, currentWorkerId: string): Promise<number> {
+  await connectDatabase();
+  const docs = await GenerationJobModel.find({ status: "running", lockedBy: { $regex: `^${host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:`, $ne: currentWorkerId } }).lean<GenerationJobDoc[]>();
+  for (const doc of docs) {
+    if (RESUMABLE_JOB_TYPES.includes(doc.type) && doc.attempts < MAX_CONTINUATIONS) await continueLater(doc, "Continuing after a restart");
+    else
+      await GenerationJobModel.updateOne(
+        { _id: doc._id, status: "running" },
+        doc.attempts < doc.maxAttempts
+          ? { $set: { status: "pending", lockedBy: null, heartbeatAt: null, runAfter: new Date() } }
+          : { $set: { status: "failed", lockedBy: null, heartbeatAt: null, error: { userMessage: "This task was interrupted. You can try again.", detail: "worker restarted", retryable: true } } },
+      );
+  }
+  return docs.length;
+}
+
 /** Return jobs whose worker stopped sending heartbeats to the queue. */
 export async function recoverStaleJobs(staleAfterMs = 120_000): Promise<number> {
   await connectDatabase();
   const cutoff = new Date(Date.now() - staleAfterMs);
   const stale = { status: "running" as const, heartbeatAt: { $lt: cutoff } };
+  // Resumable jobs continue instead of failing.
+  const resumable = await GenerationJobModel.find({ ...stale, type: { $in: RESUMABLE_JOB_TYPES }, attempts: { $lt: MAX_CONTINUATIONS } }).lean<GenerationJobDoc[]>();
+  for (const doc of resumable) await continueLater(doc, "Continuing after an interruption");
   const requeued = await GenerationJobModel.updateMany(
     { ...stale, $expr: { $lt: ["$attempts", "$maxAttempts"] } },
     { $set: { status: "pending", lockedBy: null, heartbeatAt: null, runAfter: new Date() } },
@@ -182,7 +231,7 @@ export async function recoverStaleJobs(staleAfterMs = 120_000): Promise<number> 
       error: { userMessage: "This task stopped unexpectedly. You can try again.", detail: "worker heartbeat lost", retryable: true },
     },
   });
-  return requeued.modifiedCount + failed.modifiedCount;
+  return resumable.length + requeued.modifiedCount + failed.modifiedCount;
 }
 
 export async function listJobs(projectId: string, options: { statuses?: JobStatus[]; limit?: number } = {}): Promise<Job[]> {

@@ -6,6 +6,7 @@ import {
   failJob,
   markCancelled,
   parseJobInput,
+  recoverInterruptedJobs,
   recoverStaleJobs,
   sendHeartbeat,
   type Job,
@@ -23,7 +24,7 @@ import { startMediaServer } from "./static-server";
 /**
  * Studio background worker.
  *
- * Claims jobs from MongoDB and runs them: media processing and Remotion
+ * Claims jobs from MongoDB and runs them: media processing, Claude animation and Remotion
  * exports. Exports run one at a time; other work runs a few jobs in parallel.
  */
 
@@ -39,6 +40,10 @@ async function main() {
   await connectDatabase();
   const media = await startMediaServer();
   console.log(`[worker] ${WORKER_ID} ready (up to ${MAX_PARALLEL} parallel jobs)`);
+  // Jobs a previous worker on this computer was running were cut off (restart, crash, app closed).
+  // Animation jobs continue from where they stopped; they only end when the user cancels them.
+  const interrupted = await recoverInterruptedJobs(os.hostname(), WORKER_ID).catch(() => 0);
+  if (interrupted) console.log(`[worker] picked up ${interrupted} interrupted job(s)`);
 
   setInterval(() => {
     recoverStaleJobs().then((n) => n && console.log(`[worker] returned ${n} stalled job(s) to the queue`)).catch(() => {});

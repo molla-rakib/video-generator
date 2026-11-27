@@ -9,3 +9,4 @@ export * from "./repositories/jobs";
 export * from "./jobs-catalog";
 export * from "./repositories/project-media";
 export * from "./repositories/project-backups";
+export * from "./repositories/generation-progress";
