@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, FolderOpen, Images, Plus, Settings } from "lucide-react";
+import { FolderOpen, Images, Plus, Settings } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -20,9 +20,8 @@ export function Sidebar() {
   return (
     <aside className={cn("flex shrink-0 flex-col border-r bg-surface", compact ? "w-14" : "w-56")}>
       <Link href="/" className={cn("flex h-14 items-center gap-2 border-b font-semibold tracking-tight", compact ? "justify-center" : "px-4")}>
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-violet-500 to-orange-400 text-white shadow-sm">
-          <Clapperboard className="size-4" aria-hidden />
-        </span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo.png" alt="" width={28} height={28} className="size-7 shrink-0 rounded-md" />
         {compact ? <span className="sr-only">Documentary Studio</span> : <span className="truncate">Documentary Studio</span>}
       </Link>
       <nav className="flex flex-1 flex-col gap-1 p-2">

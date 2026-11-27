@@ -8,6 +8,7 @@ import { dimensionsFor } from "@studio/shared";
 import { boxFor, formatClock, setClipLayout, timelineDuration, TRACK_FOR_CLIP, type Box, type Clip } from "@studio/timeline";
 import { Button } from "@/components/ui/button";
 import { useEditorContext } from "./context";
+import { StartAnimating } from "./start-animating";
 import { useEditor, usePlayhead } from "./store";
 
 /** The preview monitor: the real composition, played in the browser. */
@@ -78,7 +79,8 @@ export function Preview() {
   }, [playhead, fps, durationInFrames, playerMounted]);
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface" aria-label="Preview">
+    <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-surface" aria-label="Preview">
+      <StartAnimating />
       <div className="flex min-h-0 flex-1 items-center justify-center p-4">
         <div ref={areaRef} className="relative h-full w-full">
           <div

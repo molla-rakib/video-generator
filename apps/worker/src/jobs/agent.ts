@@ -28,7 +28,7 @@ const exists = (p: string) => stat(p).then(() => true, () => false);
  * project is restored exactly as it was.
  */
 
-function systemPrompt(skills: Skill[]): string {
+export function systemPrompt(skills: Skill[]): string {
   return [
     "You are the animator and editor for a cartoon video studio app. The user edits videos on a timeline;",
     "you change the project files when they ask. The app validates your work after you finish.",
@@ -87,7 +87,7 @@ function requestPrompt(input: JobInput<"agent.revise">, timeline: Timeline): str
 }
 
 /** Problems with the project after the agent's change (empty = fine). */
-async function findProblems(dir: string): Promise<string[]> {
+export async function findProblems(dir: string): Promise<string[]> {
   let timeline: Timeline;
   try {
     timeline = parseTimeline(JSON.parse(await readFile(path.join(dir, "project.json"), "utf8")));

@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { getProject } from "@studio/database";
 import { UserFacingError } from "@studio/shared";
 import { apiHandler } from "@/lib/server/api";
-import { applyInputs, inputStatus, saveSubtitles, saveVoice } from "@/lib/server/project-input";
+import { applyInputs, decodeSubtitleBytes, inputStatus, saveAsset, saveReference, saveSubtitles, saveVoice } from "@/lib/server/project-input";
 
 type Context = RouteContext<"/api/projects/[projectId]/input">;
 
@@ -29,8 +29,13 @@ export const POST = apiHandler(async (request: NextRequest, ctx: Context) => {
     return Response.json({ path }, { status: 201 });
   }
   if (kind === "subtitles") {
-    const { path, parsed } = await saveSubtitles(projectId, name, await request.text());
+    const text = decodeSubtitleBytes(new Uint8Array(await request.arrayBuffer()));
+    const { path, parsed } = await saveSubtitles(projectId, name, text);
     return Response.json({ path, cues: parsed.cues.length, emotionHints: parsed.emotionHints.length, warnings: parsed.warnings }, { status: 201 });
+  }
+  if (kind === "reference") return Response.json({ path: await saveReference(projectId, name, request.body) }, { status: 201 });
+  if (kind === "asset") {
+    return Response.json({ path: await saveAsset(projectId, name, request.body, Number(request.headers.get("content-length") ?? 0)) }, { status: 201 });
   }
   throw new UserFacingError("Unknown upload.");
 });

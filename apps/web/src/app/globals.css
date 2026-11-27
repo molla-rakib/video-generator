@@ -48,55 +48,12 @@
   --font-bangla: var(--font-bengali), var(--font-inter), sans-serif;
 }
 
+/*
+ * Theme: dark, in several shades, with a lime accent — used across the app.
+ * Surfaces go from deepest (--surface) to most raised (--popover).
+ */
 :root {
   --radius: 0.625rem;
-
-  /* Surfaces */
-  --background: oklch(1 0 0);
-  --surface: oklch(0.982 0.002 247); /* light gray secondary surface */
-  --card: oklch(1 0 0);
-  --popover: oklch(1 0 0);
-
-  /* Text: dark charcoal */
-  --foreground: oklch(0.24 0.008 260);
-  --card-foreground: var(--foreground);
-  --popover-foreground: var(--foreground);
-  --muted-foreground: oklch(0.52 0.012 260);
-
-  /* Primary actions are charcoal; the accent is used sparingly */
-  --primary: oklch(0.24 0.008 260);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.965 0.003 247);
-  --secondary-foreground: var(--foreground);
-  --muted: oklch(0.965 0.003 247);
-  --accent: oklch(0.96 0.004 247);
-  --accent-foreground: var(--foreground);
-
-  /* Restrained accent: a calm documentary blue */
-  --brand: oklch(0.52 0.14 255);
-  --brand-foreground: oklch(0.99 0 0);
-  --brand-soft: oklch(0.96 0.025 255);
-
-  /* Status colours */
-  --success: oklch(0.52 0.12 155);
-  --success-soft: oklch(0.96 0.03 155);
-  --warning: oklch(0.6 0.13 70);
-  --warning-soft: oklch(0.97 0.04 85);
-  --destructive: oklch(0.55 0.2 27);
-  --destructive-soft: oklch(0.97 0.02 27);
-
-  --border: oklch(0.92 0.004 260);
-  --input: oklch(0.9 0.004 260);
-  --ring: oklch(0.52 0.14 255 / 0.5);
-}
-
-/*
- * Editor theme: dark, in several shades, with a lime accent.
- * Applied to the editor workspace (and to <html> while the editor is open,
- * so dialogs, menus and toasts match).
- */
-.theme-editor {
-  color-scheme: dark;
 
   /* Surfaces, from deepest to most raised */
   --surface: oklch(0.145 0.005 260); /* preview well, timeline lanes */
@@ -139,7 +96,7 @@
     @apply border-border outline-ring/50;
   }
   html {
-    color-scheme: light;
+    color-scheme: dark;
   }
   body {
     @apply bg-background text-foreground antialiased;

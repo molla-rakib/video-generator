@@ -36,8 +36,12 @@ const TIME = /(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[,.](\d{1,3})/;
 const ARROW = new RegExp(`${TIME.source}\\s*-->\\s*${TIME.source}`);
 
 function seconds(h: string | undefined, m: string, s: string, ms: string): number {
-  return Number(h ?? 0) * 3600 + Number(m) * 60 + Number(s) + Number(ms.padEnd(3, "0")) / 1000;
+  // Whole milliseconds, so 6,363 is exactly 6.363 (no float noise).
+  return (Number(h ?? 0) * 3600_000 + Number(m) * 60_000 + Number(s) * 1000 + Number(ms.padEnd(3, "0"))) / 1000;
 }
+
+/** True when a line has no letters or digits left (e.g. just "." after removing a tag). */
+const isEmptyText = (text: string) => !/[\p{L}\p{N}]/u.test(text);
 
 /** "[happy] Hello <i>there</i>" → { text: "Hello there", tags: ["happy"] } */
 export function cleanCueText(raw: string): { text: string; tags: string[] } {
@@ -45,14 +49,20 @@ export function cleanCueText(raw: string): { text: string; tags: string[] } {
   let text = raw
     .replace(/<[^>]+>/g, "") // VTT/SRT styling tags
     .replace(/\{\\[^}]*\}/g, ""); // SSA-style overrides
-  text = text.replace(/\[([^\]\n]{1,40})\]/g, (_, tag: string) => {
+  // ElevenLabs writes tags like "[Serious]." — drop the tag and the punctuation it carries.
+  text = text.replace(/\[([^\]\n]{1,40})\][ \t]*[.,।!]?/g, (_, tag: string) => {
     tags.push(tag.trim().toLowerCase());
     return " ";
   });
   // A tag split across lines/cues leaves a dangling "[happ" or "y]".
   text = text.replace(/\[[^\]\n]{0,40}$/g, " ").replace(/^[^[\n]{0,40}\]/g, " ");
-  text = text.replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
-  return { text, tags };
+  text = text
+    .replace(/[ \t]+/g, " ")
+    .replace(/ ([.,।!?]+)(?=\s|$)/g, "$1") // "পারেন?\" ." → "পারেন?\"."
+    .replace(/(["”’?!।])\.(?=\s|$)/g, "$1") // …and drop the leftover full stop after closing marks
+    .replace(/\s*\n\s*/g, "\n")
+    .trim();
+  return { text: isEmptyText(text) ? "" : text, tags };
 }
 
 /** Parse SRT or WebVTT text into clean, ordered, non-overlapping cues. */

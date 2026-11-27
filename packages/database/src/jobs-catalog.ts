@@ -15,6 +15,11 @@ export const JOB_INPUTS = {
     format: z.enum(["mp4", "webm"]).default("mp4"),
     fps: FpsSchema.optional(),
   }),
+  /** Animate the whole story from the voiceover and subtitles. */
+  "agent.generate": z.object({
+    /** Optional extra direction from the user. */
+    notes: z.string().trim().max(4000).default(""),
+  }),
   /** Ask the AI agent to change part of the video. */
   "agent.revise": z.object({
     request: z.string().trim().min(2).max(4000),
@@ -32,10 +37,11 @@ export const JOB_TITLES: Record<JobType, string> = {
   "media.process": "Preparing a file",
   render: "Exporting the video",
   "agent.revise": "Claude is changing your video",
+  "agent.generate": "Claude is animating your story",
 };
 
 // Agent jobs are never retried automatically: each run costs plan usage.
-const RETRIES: Partial<Record<JobType, number>> = { render: 1, "media.process": 2, "agent.revise": 1 };
+const RETRIES: Partial<Record<JobType, number>> = { render: 1, "media.process": 2, "agent.revise": 1, "agent.generate": 1 };
 
 export async function enqueue<T extends JobType>(
   type: T,

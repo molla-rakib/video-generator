@@ -98,7 +98,7 @@ export function Editor(props: {
         for (const job of status.jobs) {
           const before = prev?.jobs.find((j) => j.id === job.id);
           if (before && before.status !== job.status) {
-            if (job.status === "completed" && job.type === "agent.revise") announceClaude(job);
+            if (job.status === "completed" && (job.type === "agent.revise" || job.type === "agent.generate")) announceClaude(job);
             else if (job.status === "completed" && job.type !== "media.process") toast.success(`${job.title} — done.`);
             if (job.status === "failed") toast.error(job.error?.userMessage ?? `${job.title} failed.`);
           }
@@ -115,13 +115,6 @@ export function Editor(props: {
       clearTimeout(timer);
     };
   }, [project.id, store, reloadTimeline, refreshMedia, announceClaude]);
-
-  // Dark + lime editor theme for the whole page while the editor is open
-  // (so the sidebar, dialogs, menus and toasts match).
-  useEffect(() => {
-    document.documentElement.classList.add("theme-editor");
-    return () => document.documentElement.classList.remove("theme-editor");
-  }, []);
 
   // Save before leaving the page.
   useEffect(() => {
@@ -232,7 +225,7 @@ export function Editor(props: {
 
   return (
     <EditorContext.Provider value={value}>
-      <div className="theme-editor flex h-full min-h-0 flex-col bg-background text-foreground">
+      <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
         <TopBar />
         <ConflictBanner store={store} onReload={reloadTimeline} />
         <ClaudeStatusBar />

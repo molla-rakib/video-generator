@@ -59,6 +59,12 @@ async function creds(id: ProviderId) {
   return getProviderCredentials(id, ENV_KEYS[id]);
 }
 
+/** ElevenLabs for sound effects and music, or null when it isn't connected. */
+export async function getSoundGenerator(): Promise<ElevenLabsSounds | null> {
+  const c = await creds("elevenlabs");
+  return c.apiKey ? new ElevenLabsSounds(c.apiKey) : null;
+}
+
 /** How to launch Claude Code as the studio's agent, from the user's Settings. */
 export async function getClaudeAgentConfig(): Promise<{ command: string; model: string; apiKey: string | null }> {
   const c = await creds("anthropic");

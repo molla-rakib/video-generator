@@ -44,7 +44,7 @@ interface SettingsData {
   providers: Record<string, ProviderView>;
 }
 
-const SKILL_COLORS = ["bg-sky-100 text-sky-700", "bg-emerald-100 text-emerald-700", "bg-rose-100 text-rose-700", "bg-amber-100 text-amber-700"];
+const SKILL_COLORS = ["bg-sky-500/15 text-sky-300", "bg-emerald-500/15 text-emerald-300", "bg-rose-500/15 text-rose-300", "bg-amber-500/15 text-amber-300"];
 
 function SkillsList({ skills }: { skills: SettingsData["skills"] }) {
   return (
@@ -57,7 +57,7 @@ function SkillsList({ skills }: { skills: SettingsData["skills"] }) {
           <div className="min-w-0 space-y-0.5">
             <p className="flex items-center gap-2 text-sm font-medium">
               {s.name.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase())}
-              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">Built in</span>
+              <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-medium text-slate-300">Built in</span>
             </p>
             <p className="text-sm text-muted-foreground">{s.description}</p>
           </div>
@@ -222,30 +222,30 @@ const STATUS: Record<
 > = {
   connected: {
     label: "Connected",
-    className: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    className: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/30",
     icon: <CheckCircle2 className="size-3.5" />,
   },
   error: {
     label: "Not working",
-    className: "bg-red-50 text-red-700 ring-red-200",
+    className: "bg-red-500/10 text-red-300 ring-red-500/30",
     icon: <AlertCircle className="size-3.5" />,
   },
   unchecked: {
     label: "Not checked yet",
-    className: "bg-amber-50 text-amber-800 ring-amber-200",
+    className: "bg-amber-500/10 text-amber-200 ring-amber-500/30",
     icon: <CircleDashed className="size-3.5" />,
   },
   off: {
     label: "Not connected",
-    className: "bg-slate-100 text-slate-600 ring-slate-200",
+    className: "bg-slate-500/15 text-slate-400 ring-slate-500/30",
     icon: <CircleDashed className="size-3.5" />,
   },
 };
 
 const TAG_TONES = {
-  orange: "bg-orange-100 text-orange-800",
-  violet: "bg-violet-100 text-violet-800",
-  slate: "bg-slate-100 text-slate-600",
+  orange: "bg-orange-500/15 text-orange-200",
+  violet: "bg-violet-500/15 text-violet-200",
+  slate: "bg-slate-500/15 text-slate-400",
 };
 
 function StatusPill({ status }: { status: Status }) {
@@ -318,7 +318,7 @@ function ServiceCard(props: {
             <p
               className={cn(
                 "text-xs",
-                props.status === "error" ? "text-red-700" : "text-emerald-700",
+                props.status === "error" ? "text-red-300" : "text-emerald-300",
               )}
             >
               {props.statusText}
@@ -354,11 +354,11 @@ function Note({
   children: React.ReactNode;
 }) {
   const tones = {
-    blue: "border-sky-200 bg-sky-50 text-sky-950 [&_svg.note-icon]:text-sky-600",
+    blue: "border-sky-500/30 bg-sky-500/10 text-sky-100 [&_svg.note-icon]:text-sky-400",
     violet:
-      "border-violet-200 bg-violet-50 text-violet-950 [&_svg.note-icon]:text-violet-600",
+      "border-violet-500/30 bg-violet-500/10 text-violet-100 [&_svg.note-icon]:text-violet-400",
     amber:
-      "border-amber-200 bg-amber-50 text-amber-950 [&_svg.note-icon]:text-amber-600",
+      "border-amber-500/30 bg-amber-500/10 text-amber-100 [&_svg.note-icon]:text-amber-400",
   };
   return (
     <div
@@ -390,11 +390,11 @@ function Steps({ steps }: { steps: React.ReactNode[] }) {
 
 function Code({ children }: { children: string }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-white/80 px-1.5 py-0.5 font-mono text-[12px] ring-1 ring-sky-200">
+    <span className="inline-flex items-center gap-1 rounded-md bg-black/30 px-1.5 py-0.5 font-mono text-[12px] ring-1 ring-sky-500/30">
       {children}
       <button
         type="button"
-        className="text-sky-600 hover:text-sky-800"
+        className="text-sky-400 hover:text-sky-200"
         onClick={() =>
           void navigator.clipboard
             .writeText(children)
@@ -415,14 +415,14 @@ function TestResult({ view }: { view: ProviderView }) {
       className={cn(
         "flex gap-2 rounded-lg border p-3 text-sm",
         view.lastTest.ok
-          ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-          : "border-red-200 bg-red-50 text-red-900",
+          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+          : "border-red-500/30 bg-red-500/10 text-red-200",
       )}
     >
       {view.lastTest.ok ? (
-        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-400" />
       ) : (
-        <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-600" />
+        <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-400" />
       )}
       {view.lastTest.message}
     </div>
@@ -541,7 +541,7 @@ function ClaudeForm({ onOpenChange, view, onChanged }: DialogProps) {
             className={cn(
               "rounded-lg border p-3 text-left transition-colors hover:bg-surface",
               mode === o.id &&
-                "border-orange-300 bg-orange-50 ring-1 ring-orange-300",
+                "border-orange-500/40 bg-orange-500/10 ring-1 ring-orange-500/40",
             )}
           >
             <span className="block text-sm font-medium">{o.label}</span>
@@ -724,9 +724,9 @@ function ElevenLabsForm({ onOpenChange, view, onChanged }: DialogProps) {
       </DialogHeader>
 
       <div className="grid grid-cols-2 gap-2 text-sm">
-        <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
-          <p className="font-medium text-violet-900">With ElevenLabs</p>
-          <p className="text-xs text-violet-800">
+        <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-3">
+          <p className="font-medium text-violet-200">With ElevenLabs</p>
+          <p className="text-xs text-violet-200">
             Realistic sound effects and generated music.
           </p>
         </div>
@@ -829,7 +829,7 @@ function StorageCard({ storage }: { storage: SettingsData["storage"] }) {
   const rows = [
     {
       icon: <FolderOpen className="size-4" />,
-      tile: "bg-sky-100 text-sky-700",
+      tile: "bg-sky-500/15 text-sky-300",
       title: "Projects and media files",
       text: "Each project has its own folder: your uploads (media), scenes, music and sound effects (audio), exported videos (exports) and project.json — the editable timeline.",
       path: `${storage.projects}${sep}<project>${sep}`,
@@ -837,13 +837,13 @@ function StorageCard({ storage }: { storage: SettingsData["storage"] }) {
     },
     {
       icon: <Database className="size-4" />,
-      tile: "bg-emerald-100 text-emerald-700",
+      tile: "bg-emerald-500/15 text-emerald-300",
       title: "Project list, file details and settings",
       text: `${storage.database} (runs in Docker on this computer).`,
     },
     {
       icon: <KeyRound className="size-4" />,
-      tile: "bg-amber-100 text-amber-700",
+      tile: "bg-amber-500/15 text-amber-300",
       title: "API keys",
       text: "Saved encrypted in the database. The encryption key is in this folder — keep it private:",
       path: storage.secrets,

@@ -51,6 +51,15 @@ describe("parseSubtitles", () => {
     expect(() => parseSubtitles("just some text")).toThrow(/No subtitles/);
   });
 
+  it("handles ElevenLabs tags that carry a full stop", () => {
+    const { cues } = parseSubtitles(
+      '1\n00:00:00,000 --> 00:00:00,160\n[Opening Hook].\n\n2\n00:00:00,656 --> 00:00:06,363\nইমন আজ এসেছে।\n\n3\n00:00:12,221 --> 00:00:16,576\nগর্ব করতে\nপারেন?" [Serious].\n',
+    );
+    expect(cues.map((c) => c.text)).toEqual(["ইমন আজ এসেছে।", 'গর্ব করতে\nপারেন?"']);
+    expect(cues[0]).toMatchObject({ start: 0.656, end: 6.363, tags: ["opening hook"] });
+    expect(cues[1]!.tags).toEqual(["serious"]);
+  });
+
   it("cleans dangling half-tags", () => {
     expect(cleanCueText("Hello [Dramat").text).toBe("Hello");
   });

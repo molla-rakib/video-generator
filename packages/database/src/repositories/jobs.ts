@@ -156,6 +156,15 @@ export async function markCancelled(jobId: string): Promise<void> {
   );
 }
 
+/**
+ * "Still alive" without changing progress — sent on a timer while a job
+ * runs, so long quiet steps (an agent thinking for minutes) aren't mistaken
+ * for a dead worker.
+ */
+export async function sendHeartbeat(jobId: string, workerId: string): Promise<void> {
+  await GenerationJobModel.updateOne({ _id: jobId, lockedBy: workerId, status: "running" }, { $set: { heartbeatAt: new Date() } });
+}
+
 /** Return jobs whose worker stopped sending heartbeats to the queue. */
 export async function recoverStaleJobs(staleAfterMs = 120_000): Promise<number> {
   await connectDatabase();

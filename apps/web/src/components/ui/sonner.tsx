@@ -9,11 +9,11 @@ import {
 } from "lucide-react"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 
-// Documentary Studio is white-themed only, so the toaster is always light.
+// The app uses a dark theme everywhere, so the toaster is always dark.
 const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
-      theme="light"
+      theme="dark"
       className="toaster group"
       icons={{
         success: <CircleCheckIcon className="size-4 text-success" />,

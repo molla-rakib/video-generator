@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { connection } from "next/server";
-import { Clapperboard, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { DatabaseUnavailableError, listProjects, type Project } from "@studio/database";
 import { DatabaseUnavailable } from "@/components/database-unavailable";
 import { PageContainer, PageHeader } from "@/components/layout/page-container";
@@ -21,9 +21,8 @@ export default async function ProjectsPage() {
     return (
       <PageContainer>
         <div className="mx-auto flex max-w-xl flex-col items-center py-20 text-center">
-          <span className="mb-6 flex size-14 items-center justify-center rounded-2xl bg-surface ring-1 ring-border">
-            <Clapperboard className="size-6 text-muted-foreground" aria-hidden />
-          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="" width={72} height={72} className="mb-6 size-18 rounded-2xl shadow-lg" />
           <h1 className="text-3xl font-semibold tracking-tight">আপনার প্রথম কার্টুন ভিডিও তৈরি করুন</h1>
           <p className="mt-3 text-base text-muted-foreground">
             Your cartoon arrives as editable pieces — scenes, music, sound effects and captions. Add your own clips, change any

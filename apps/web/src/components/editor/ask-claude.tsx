@@ -28,7 +28,7 @@ export function AskClaudeButton() {
   const range = useEditor(store, (s) => s.range);
   const [open, setOpen] = useState(false);
   const [request, setRequest] = useState("");
-  const working = isBusy(jobs, "agent.revise");
+  const working = isBusy(jobs, "agent.revise", "agent.generate");
 
   const clips = selected.map((id) => timeline.clips.find((c) => c.id === id)).filter((c): c is Clip => Boolean(c));
   const target =

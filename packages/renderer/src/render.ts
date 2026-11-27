@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
-import { makeCancelSignal, renderMedia, selectComposition } from "@remotion/renderer";
+import { makeCancelSignal, renderMedia, renderStill, selectComposition } from "@remotion/renderer";
 import type { VideoProps } from "./composition";
 
 /**
@@ -31,6 +31,40 @@ export interface RenderOptions {
   /** Return true to abort the render. */
   shouldCancel?: () => boolean;
   concurrency?: number;
+}
+
+/**
+ * Render single frames as PNG — used so the agent can look at its own work.
+ * Returns the frames that rendered (a broken scene is reported, not fatal).
+ */
+export async function renderStills(options: {
+  props: VideoProps;
+  stills: Array<{ frame: number; outputPath: string }>;
+  scale?: number;
+  onStill?: (done: number, total: number) => void;
+}): Promise<Array<{ frame: number; outputPath: string; error?: string }>> {
+  const serveUrl = await getBundle();
+  const composition = await selectComposition({ serveUrl, id: "Video", inputProps: options.props });
+  const results: Array<{ frame: number; outputPath: string; error?: string }> = [];
+  for (const [i, still] of options.stills.entries()) {
+    try {
+      await renderStill({
+        serveUrl,
+        composition,
+        inputProps: options.props,
+        frame: Math.min(composition.durationInFrames - 1, Math.max(0, still.frame)),
+        output: still.outputPath,
+        imageFormat: "png",
+        scale: options.scale ?? 0.5,
+        chromiumOptions: { disableWebSecurity: true },
+      });
+      results.push(still);
+    } catch (error) {
+      results.push({ ...still, error: error instanceof Error ? error.message.split("\n")[0] : String(error) });
+    }
+    options.onStill?.(i + 1, options.stills.length);
+  }
+  return results;
 }
 
 export async function renderVideo(options: RenderOptions): Promise<void> {

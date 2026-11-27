@@ -12,7 +12,7 @@ export const GET = apiHandler(async (_request: NextRequest, ctx: Context) => {
 });
 
 /** Jobs the editor may start directly. */
-const STARTABLE: JobType[] = ["render", "agent.revise"];
+const STARTABLE: JobType[] = ["render", "agent.revise", "agent.generate"];
 
 export const POST = apiHandler(async (request: NextRequest, ctx: Context) => {
   const { projectId } = await ctx.params;
@@ -21,9 +21,9 @@ export const POST = apiHandler(async (request: NextRequest, ctx: Context) => {
   if (!STARTABLE.includes(body.type as JobType) || !(body.type in JOB_INPUTS)) {
     throw new UserFacingError("That action isn't available.", "unknown_job", 400);
   }
-  if (body.type === "agent.revise") {
+  if (body.type === "agent.revise" || body.type === "agent.generate") {
     const jobs = await listRecentJobs(projectId);
-    if (jobs.some((j) => j.type === "agent.revise" && (j.status === "pending" || j.status === "running"))) {
+    if (jobs.some((j) => (j.type === "agent.revise" || j.type === "agent.generate") && (j.status === "pending" || j.status === "running"))) {
       throw new UserFacingError("Claude is already working on this video. Wait for it to finish, or cancel it first.", "agent_busy", 409);
     }
   }

@@ -7,6 +7,7 @@ import {
   markCancelled,
   parseJobInput,
   recoverStaleJobs,
+  sendHeartbeat,
   type Job,
   type JobType,
 } from "@studio/database";
@@ -14,6 +15,7 @@ import { ProviderError } from "@studio/providers";
 import { UserFacingError } from "@studio/shared";
 import { createContext, JobCancelledError } from "./context";
 import { runAgentRevise } from "./jobs/agent";
+import { runAgentGenerate } from "./jobs/generate";
 import { runMediaProcess } from "./jobs/media";
 import { runRender } from "./jobs/render";
 import { startMediaServer } from "./static-server";
@@ -46,6 +48,7 @@ async function main() {
     "media.process": (job, ctx) => runMediaProcess(ctx, parseJobInput("media.process", job.input)),
     render: (job, ctx) => runRender(ctx, parseJobInput("render", job.input), media),
     "agent.revise": (job, ctx) => runAgentRevise(ctx, parseJobInput("agent.revise", job.input)),
+    "agent.generate": (job, ctx) => runAgentGenerate(ctx, parseJobInput("agent.generate", job.input), media),
   };
   const allTypes = Object.keys(handlers);
 
@@ -53,6 +56,8 @@ async function main() {
     const started = Date.now();
     const ctx = createContext(job, WORKER_ID);
     console.log(`[worker] ▶ ${job.type} ${job.id}`);
+    // Keep the job marked alive even through long quiet steps.
+    const heartbeat = setInterval(() => void sendHeartbeat(job.id, WORKER_ID).catch(() => {}), 20_000);
     try {
       const handler = handlers[job.type as JobType];
       if (!handler) throw new Error(`Unknown job type ${job.type}`);
@@ -71,6 +76,8 @@ async function main() {
       const retryable = error instanceof ProviderError ? error.retryable : !(error instanceof UserFacingError);
       await failJob(job.id, WORKER_ID, { userMessage, detail: detail.slice(0, 4000), retryable });
       console.error(`[worker] ✗ ${job.type} ${job.id}: ${detail.split("\n")[0]}`);
+    } finally {
+      clearInterval(heartbeat);
     }
   };
 

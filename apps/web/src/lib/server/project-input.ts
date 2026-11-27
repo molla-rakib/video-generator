@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { getTimeline, projectFile, registerProjectFiles, touchProject, updateTimeline } from "@studio/database";
-import { getStorage, probeMedia } from "@studio/media";
+import { getStorage, probeMedia, safeFileName } from "@studio/media";
 import { UserFacingError } from "@studio/shared";
 import { addClip, clipEnd, ensureTrack, formatClock, parseSubtitles, SubtitleParseError, updateTrack, type ParsedSubtitles, type Timeline } from "@studio/timeline";
 
@@ -51,6 +51,45 @@ export async function saveSubtitles(projectId: string, name: string, text: strin
   await storage.put(projectFile(projectId, path), Buffer.from(text, "utf8"));
   await storage.put(projectFile(projectId, "input/subtitles.json"), Buffer.from(JSON.stringify(parsed, null, 2), "utf8"));
   return { path, parsed };
+}
+
+/** Decode subtitle bytes whatever tool saved them (UTF-8 with/without BOM, UTF-16). */
+export function decodeSubtitleBytes(bytes: Uint8Array): string {
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder("utf-16le").decode(bytes);
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder("utf-16be").decode(bytes);
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+export const MAX_REFERENCES = 10;
+const REFERENCE_EXT = ["png", "jpg", "jpeg", "webp"];
+const ASSET_EXT = ["png", "jpg", "jpeg", "webp", "gif", "svg", "mp3", "wav", "m4a", "ogg", "mp4", "webm", "mov", "json"];
+const MAX_ASSET_BYTES = 200 * 1024 ** 2;
+
+async function listDir(projectId: string, dir: string): Promise<string[]> {
+  const { readdir } = await import("node:fs/promises");
+  const abs = await getStorage().localPath(projectFile(projectId, `${dir}/x`));
+  return readdir(abs.slice(0, -2)).catch(() => []);
+}
+
+/** A picture showing how a character or place should look (input/references/). */
+export async function saveReference(projectId: string, name: string, body: ReadableStream<Uint8Array>): Promise<string> {
+  if (!REFERENCE_EXT.includes(extOf(name))) throw new UserFacingError("Reference images must be PNG, JPG or WebP.");
+  const existing = await listDir(projectId, "input/references");
+  if (existing.length >= MAX_REFERENCES) throw new UserFacingError(`Up to ${MAX_REFERENCES} reference images.`);
+  const path = `input/references/${String(existing.length + 1).padStart(2, "0")}-${safeFileName(name, "reference")}`;
+  await getStorage().put(projectFile(projectId, path), Readable.fromWeb(body as import("node:stream/web").ReadableStream<Uint8Array>));
+  return path;
+}
+
+/** A file from the user's asset folder, keeping its sub-folders (input/assets/…). */
+export async function saveAsset(projectId: string, relativePath: string, body: ReadableStream<Uint8Array>, length: number): Promise<string> {
+  const segments = relativePath.split(/[\\/]+/).filter(Boolean).slice(-4);
+  if (!segments.length || !ASSET_EXT.includes(extOf(segments.at(-1)!))) throw new UserFacingError("Only pictures, sounds, videos and JSON can be used as assets.");
+  if (length > MAX_ASSET_BYTES) throw new UserFacingError("An asset is larger than 200 MB.");
+  const clean = segments.map((s, i) => (i === segments.length - 1 ? safeFileName(s, "asset") : safeFileName(s, "folder").replace(/\.[^.]*$/, "")));
+  const path = `input/assets/${clean.join("/")}`;
+  await getStorage().put(projectFile(projectId, path), Readable.fromWeb(body as import("node:stream/web").ReadableStream<Uint8Array>));
+  return path;
 }
 
 async function findInput(projectId: string, base: string, exts: readonly string[]): Promise<string | null> {

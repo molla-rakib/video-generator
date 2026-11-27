@@ -26,12 +26,17 @@ export async function backupProject(projectId: string): Promise<string> {
   return name;
 }
 
-export async function restoreProjectBackup(projectId: string, name: string): Promise<void> {
+/**
+ * Put a backup back. `scenes: false` restores only the timeline and keeps
+ * scene files written since — used when a generation fails, so a retry can
+ * reuse the work already done.
+ */
+export async function restoreProjectBackup(projectId: string, name: string, options: { scenes?: boolean } = {}): Promise<void> {
   if (!/^[\w-]+_before-claude$/.test(name)) throw new UserFacingError("That backup name isn't valid.");
   const dir = await projectDirectory(projectId);
   const source = path.join(dir, "history", name);
   if (!(await exists(path.join(source, "project.json")))) throw new UserFacingError("That backup no longer exists.", "not_found", 404);
-  if (await exists(path.join(source, "scenes"))) {
+  if (options.scenes !== false && (await exists(path.join(source, "scenes")))) {
     await rm(path.join(dir, "scenes"), { recursive: true, force: true });
     await cp(path.join(source, "scenes"), path.join(dir, "scenes"), { recursive: true });
   }
