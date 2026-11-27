@@ -42,7 +42,8 @@ export const POST = apiHandler(async (request: NextRequest, ctx: Context) => {
   if (!request.body) throw new UserFacingError("The upload was empty.");
 
   const fileName = `${Date.now()}-${safeFileName(originalName, kind)}`;
-  const key = projectKey(projectId, kind === "audio" ? "audio" : kind === "image" ? "images" : "video", fileName);
+  // Your own files live in the project's media/ folder; clips refer to them as media/<file>.
+  const key = projectKey(projectId, "media", fileName);
   const { sizeBytes } = await getStorage().put(key, Readable.fromWeb(request.body as import("node:stream/web").ReadableStream<Uint8Array>));
   if (sizeBytes === 0) {
     await getStorage().delete(key);
@@ -58,8 +59,7 @@ export const POST = apiHandler(async (request: NextRequest, ctx: Context) => {
     storageKey: key,
     mimeType: mime || "application/octet-stream",
     sizeBytes,
-    sceneId: params.get("sceneId") || null,
   });
-  const job = await enqueue("media.process", projectId, { assetId: asset.id, shotId: params.get("shotId") || null }, `Preparing “${asset.name}”`);
+  const job = await enqueue("media.process", projectId, { assetId: asset.id }, `Preparing “${asset.name}”`);
   return Response.json({ asset, job }, { status: 201 });
 });

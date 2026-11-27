@@ -11,7 +11,7 @@ const nextConfig: NextConfig = {
     "@studio/providers",
     "@studio/renderer",
   ],
-  serverExternalPackages: ["@anthropic-ai/sdk"],
+  serverExternalPackages: ["@anthropic-ai/sdk", "esbuild"],
   turbopack: {
     root: path.resolve(import.meta.dirname, "../.."),
   },

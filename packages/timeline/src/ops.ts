@@ -1,24 +1,27 @@
+import type { AspectRatio } from "@studio/shared";
 import {
+  BoxSchema,
   ClipSchema,
-  TimelineSchema,
+  ProjectDocSchema,
+  ROLE_KIND,
   TRACK_FOR_CLIP,
   clipEnd,
-  isAudioTrackLocked,
+  isTrackLocked,
   newId,
-  type AudioRole,
+  type Box,
   type Clip,
   type ClipInput,
   type Marker,
   type Timeline,
   type Track,
-  type TrackKind,
+  type TrackRole,
 } from "./editor";
 import { roundTime } from "./time";
 
 /**
  * Pure editing operations. Each returns a NEW timeline (inputs are never
  * mutated), which makes undo/redo a matter of keeping old values, and lets
- * the editor UI, the AI agents and the tests share exactly the same rules.
+ * the editor UI, the AI agent bridge and the tests share exactly the same rules.
  */
 
 export const MIN_CLIP_DURATION = 0.1;
@@ -45,18 +48,12 @@ function getTrack(t: Timeline, id: string): Track {
 }
 
 function assertEditable(t: Timeline, track: Track): void {
-  if (isAudioTrackLocked(t, track)) {
-    throw new TimelineOpError(
-      track.kind === "audio" && t.audioLockedAt
-        ? "The audio is locked. Unlock it to make changes."
-        : `The track "${track.name}" is locked.`,
-    );
-  }
+  if (isTrackLocked(t, track)) throw new TimelineOpError(`The track "${track.name}" is locked. Unlock it to make changes.`);
 }
 
 function assertCompatible(track: Track, clip: Pick<Clip, "kind">): void {
   if (TRACK_FOR_CLIP[clip.kind] !== track.kind) {
-    const what = { video: "a video track", audio: "an audio track", text: "the subtitle/text track" }[TRACK_FOR_CLIP[clip.kind]];
+    const what = { video: "a scene or overlay track", audio: "an audio track", text: "a caption or title track" }[TRACK_FOR_CLIP[clip.kind]];
     throw new TimelineOpError(`This clip belongs on ${what}.`);
   }
 }
@@ -65,7 +62,7 @@ function replaceClip(t: Timeline, clip: Clip): Timeline {
   return { ...t, clips: t.clips.map((c) => (c.id === clip.id ? clip : c)) };
 }
 
-/** Gaps on a track (excluding one clip), as [start, end) intervals. */
+/** Busy intervals on a track (excluding one clip), as [start, end). */
 function occupied(t: Timeline, trackId: string, excludeId?: string): Array<[number, number]> {
   return t.clips
     .filter((c) => c.trackId === trackId && c.id !== excludeId)
@@ -190,6 +187,8 @@ export function duplicateClip(t: Timeline, clipId: string): { timeline: Timeline
 
 export const EDITABLE_CLIP_FIELDS = [
   "label",
+  "props",
+  "layout",
   "volume",
   "fadeIn",
   "fadeOut",
@@ -199,7 +198,7 @@ export const EDITABLE_CLIP_FIELDS = [
   "motionStrength",
   "fit",
   "text",
-  "sceneId",
+  "meta",
 ] as const;
 export type ClipPatch = Partial<Pick<Clip, (typeof EDITABLE_CLIP_FIELDS)[number]>>;
 
@@ -216,10 +215,27 @@ export function updateClip(t: Timeline, clipId: string, patch: ClipPatch): Timel
   return replaceClip(t, next);
 }
 
+/** Change several clips at once (e.g. turn every selected SFX down). */
+export function updateClips(t: Timeline, clipIds: readonly string[], patch: ClipPatch): Timeline {
+  return clipIds.reduce((acc, id) => updateClip(acc, id, patch), t);
+}
+
 /** Set an exact duration (keeps the start). Media clips are capped at the source length. */
 export function setClipDuration(t: Timeline, clipId: string, duration: number): Timeline {
   const clip = getClip(t, clipId);
   return trimClipEnd(t, clipId, clip.start + duration);
+}
+
+/**
+ * Swap the file a clip plays (e.g. replace a generated sound effect with
+ * your own), keeping its position, volume and fades.
+ */
+export function replaceClipSource(t: Timeline, clipId: string, src: string, sourceDuration: number | null, label?: string): Timeline {
+  const clip = getClip(t, clipId);
+  assertEditable(t, getTrack(t, clip.trackId));
+  if (!clip.src) throw new TimelineOpError("Only media clips can have their file replaced.");
+  const duration = sourceDuration !== null ? Math.min(clip.duration, sourceDuration) : clip.duration;
+  return replaceClip(t, ClipSchema.parse({ ...clip, src, sourceDuration, sourceStart: 0, duration: r(duration), label: label ?? clip.label }));
 }
 
 /**
@@ -228,12 +244,61 @@ export function setClipDuration(t: Timeline, clipId: string, duration: number): 
  */
 export function insertTime(t: Timeline, at: number, seconds: number): Timeline {
   if (seconds <= 0) return t;
-  const lockedTracks = new Set(t.tracks.filter((tr) => isAudioTrackLocked(t, tr)).map((tr) => tr.id));
+  const lockedTracks = new Set(t.tracks.filter((tr) => isTrackLocked(t, tr)).map((tr) => tr.id));
   return {
     ...t,
     clips: t.clips.map((c) => (c.start >= at - 1e-6 && !lockedTracks.has(c.trackId) ? { ...c, start: r(c.start + seconds) } : c)),
     markers: t.markers.map((m) => (m.time >= at - 1e-6 ? { ...m, time: r(m.time + seconds) } : m)),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Layout (picture-in-picture, per aspect ratio)
+// ---------------------------------------------------------------------------
+
+/**
+ * Place a visual clip in the frame. `ratio` "default" changes the layout for
+ * every shape that has no layout of its own; a specific ratio changes only
+ * that shape. Pass null for full frame. Pass `undefined` with a specific
+ * ratio to remove its own layout (it then follows the default again).
+ */
+export function setClipLayout(t: Timeline, clipId: string, ratio: AspectRatio | "default", box: Box | null | undefined): Timeline {
+  const clip = getClip(t, clipId);
+  assertEditable(t, getTrack(t, clip.trackId));
+  if (TRACK_FOR_CLIP[clip.kind] !== "video") throw new TimelineOpError("Only pictures, video and scenes can be placed in the frame.");
+  const parsed = box ? BoxSchema.parse(box) : box;
+  let layout: Clip["layout"];
+  if (ratio === "default") {
+    layout = { ...clip.layout, default: parsed ?? null };
+  } else {
+    const byRatio = { ...clip.layout.byRatio };
+    if (parsed === undefined) delete byRatio[ratio];
+    else byRatio[ratio] = parsed;
+    layout = { ...clip.layout, byRatio };
+  }
+  return replaceClip(t, { ...clip, layout });
+}
+
+export const PIP_POSITIONS = ["top-left", "top-right", "bottom-left", "bottom-right", "center"] as const;
+export type PipPosition = (typeof PIP_POSITIONS)[number];
+
+const FRAME_ASPECT: Record<AspectRatio, number> = { "16:9": 16 / 9, "9:16": 9 / 16, "4:5": 4 / 5, "1:1": 1 };
+
+/**
+ * A picture-in-picture box for a corner of the frame, sized so a source of
+ * `sourceAspect` (width / height) keeps its shape. Vertical frames get a
+ * bigger box and keep clear of the caption area.
+ */
+export function pipBox(position: PipPosition, ratio: AspectRatio, sourceAspect = 16 / 9, size?: number): Box {
+  const frame = FRAME_ASPECT[ratio];
+  const w = size ?? (frame >= 1 ? 0.3 : 0.5);
+  const h = Math.min(0.9, (w * frame) / sourceAspect);
+  const mx = 0.035;
+  const my = mx * frame;
+  const captionClearance = frame < 1 ? 0.14 : 0.04;
+  const x = position.endsWith("left") ? mx : position === "center" ? (1 - w) / 2 : 1 - w - mx;
+  const y = position.startsWith("top") ? my + (frame < 1 ? 0.04 : 0) : position === "center" ? (1 - h) / 2 : 1 - h - my - captionClearance;
+  return { x: r(x), y: r(y), w: r(w), h: r(h), radius: 0.08 };
 }
 
 // ---------------------------------------------------------------------------
@@ -243,65 +308,89 @@ export function insertTime(t: Timeline, at: number, seconds: number): Timeline {
 export function updateTrack(
   t: Timeline,
   trackId: string,
-  patch: Partial<Pick<Track, "name" | "muted" | "hidden" | "locked">>,
+  patch: Partial<Pick<Track, "name" | "muted" | "solo" | "hidden" | "locked" | "volume">>,
 ): Timeline {
   getTrack(t, trackId);
-  return { ...t, tracks: t.tracks.map((tr) => (tr.id === trackId ? { ...tr, ...patch } : tr)) };
+  const clean = patch.volume !== undefined ? { ...patch, volume: Math.min(2, Math.max(0, patch.volume)) } : patch;
+  return { ...t, tracks: t.tracks.map((tr) => (tr.id === trackId ? { ...tr, ...clean } : tr)) };
 }
 
-/** Add a track: video tracks go above existing video tracks, audio below audio. */
-export function addTrack(t: Timeline, kind: TrackKind, options: { name?: string; role?: AudioRole } = {}): { timeline: Timeline; track: Track } {
-  const count = t.tracks.filter((tr) => tr.kind === kind).length;
+export const ROLE_NAMES: Record<TrackRole, string> = {
+  scenes: "Scenes",
+  overlay: "Overlay",
+  voice: "Voice",
+  music: "Music",
+  sfx: "Sound effects",
+  ambience: "Ambience",
+  other: "Audio",
+  captions: "Captions",
+  titles: "Titles",
+};
+
+/**
+ * Add a track. Overlays go above every video track, scene tracks just above
+ * the existing scene tracks, audio below the last audio track, text on top.
+ */
+export function addTrack(t: Timeline, role: TrackRole, options: { name?: string } = {}): { timeline: Timeline; track: Track } {
+  const kind = ROLE_KIND[role];
+  const sameRole = t.tracks.filter((tr) => tr.role === role).length;
   const track: Track = {
     id: newId(kind === "video" ? "v" : kind === "audio" ? "a" : "t"),
     kind,
-    name: options.name ?? `${kind === "video" ? "Video" : kind === "audio" ? "Audio" : "Text"} ${count + 1}`,
-    role: kind === "audio" ? (options.role ?? null) : null,
+    role,
+    name: options.name ?? (sameRole ? `${ROLE_NAMES[role]} ${sameRole + 1}` : ROLE_NAMES[role]),
     muted: false,
+    solo: false,
     hidden: false,
     locked: false,
+    volume: 1,
   };
   const tracks = [...t.tracks];
-  if (kind === "video") {
-    const firstVideo = tracks.findIndex((tr) => tr.kind === "video");
-    tracks.splice(firstVideo === -1 ? tracks.length : firstVideo, 0, track);
-  } else if (kind === "audio") {
-    let lastAudio = -1;
-    tracks.forEach((tr, i) => {
-      if (tr.kind === "audio") lastAudio = i;
-    });
-    tracks.splice(lastAudio === -1 ? tracks.length : lastAudio + 1, 0, track);
-  } else {
-    tracks.unshift(track);
-  }
+  const firstIndex = (pred: (tr: Track) => boolean) => tracks.findIndex(pred);
+  let lastAudio = -1;
+  tracks.forEach((tr, i) => {
+    if (tr.kind === "audio") lastAudio = i;
+  });
+  let at: number;
+  if (role === "overlay") at = firstIndex((tr) => tr.kind === "video");
+  else if (kind === "video") at = firstIndex((tr) => tr.role === "scenes");
+  else if (kind === "audio") at = lastAudio === -1 ? -1 : lastAudio + 1;
+  else at = 0;
+  tracks.splice(at === -1 ? tracks.length : at, 0, track);
   return { timeline: { ...t, tracks }, track };
 }
 
 export function removeTrack(t: Timeline, trackId: string): Timeline {
   getTrack(t, trackId);
   if (t.clips.some((c) => c.trackId === trackId)) throw new TimelineOpError("Remove the clips on this track first.");
-  if (t.tracks.length <= 1) throw new TimelineOpError("A documentary needs at least one track.");
+  if (t.tracks.length <= 1) throw new TimelineOpError("A video needs at least one track.");
   return { ...t, tracks: t.tracks.filter((tr) => tr.id !== trackId) };
 }
 
 /**
- * Where a new clip of this kind should go by default: pictures/video on the
- * main (bottom) picture lane, audio on the track for its role, text on the
- * first text track. Locked tracks are skipped.
+ * Where a new clip should go by default: on an unlocked track with the
+ * wanted role, otherwise the first compatible unlocked track. Your own
+ * pictures and video go to the overlay lane.
  */
-export function defaultTrackFor(t: Timeline, clipKind: Clip["kind"], role?: string | null): Track | undefined {
+export function defaultTrackFor(t: Timeline, clipKind: Clip["kind"], role?: TrackRole | null): Track | undefined {
   const want = TRACK_FOR_CLIP[clipKind];
-  const tracks = t.tracks.filter((tr) => tr.kind === want && !isAudioTrackLocked(t, tr));
-  if (want === "video") return tracks.at(-1);
-  if (want === "audio") return (role ? tracks.find((tr) => tr.role === role) : undefined) ?? tracks[0];
-  return tracks[0];
+  const tracks = t.tracks.filter((tr) => tr.kind === want && !isTrackLocked(t, tr));
+  const fallbackRole: TrackRole | null =
+    clipKind === "scene" ? "scenes" : clipKind === "video" || clipKind === "image" ? "overlay" : clipKind === "caption" ? "captions" : clipKind === "title" ? "titles" : null;
+  const preferred = role && ROLE_KIND[role] === want ? role : fallbackRole;
+  return (preferred ? tracks.find((tr) => tr.role === preferred) : undefined) ?? tracks[0];
 }
 
-/** First track of a kind (optionally with a role), creating one if missing. */
-export function ensureTrack(t: Timeline, kind: TrackKind, role?: AudioRole, name?: string): { timeline: Timeline; track: Track } {
-  const existing = t.tracks.find((tr) => tr.kind === kind && (role === undefined || tr.role === role));
+/** First track with a role, creating one if missing. */
+export function ensureTrack(t: Timeline, role: TrackRole, name?: string): { timeline: Timeline; track: Track } {
+  const existing = t.tracks.find((tr) => tr.role === role);
   if (existing) return { timeline: t, track: existing };
-  return addTrack(t, kind, { role, name });
+  return addTrack(t, role, { name });
+}
+
+/** Change the shape being edited (and make sure it is one of the export shapes). */
+export function setEditingRatio(t: Timeline, ratio: AspectRatio): Timeline {
+  return { ...t, ratio, ratios: t.ratios.includes(ratio) ? t.ratios : [...t.ratios, ratio] };
 }
 
 // ---------------------------------------------------------------------------
@@ -309,7 +398,7 @@ export function ensureTrack(t: Timeline, kind: TrackKind, role?: AudioRole, name
 // ---------------------------------------------------------------------------
 
 export function addMarker(t: Timeline, marker: Omit<Marker, "id"> & { id?: string }): Timeline {
-  const m: Marker = { id: marker.id ?? newId("mk"), time: r(Math.max(0, marker.time)), label: marker.label, sceneId: marker.sceneId ?? null };
+  const m: Marker = { id: marker.id ?? newId("mk"), time: r(Math.max(0, marker.time)), label: marker.label };
   return { ...t, markers: [...t.markers, m].sort((a, b) => a.time - b.time) };
 }
 
@@ -354,5 +443,5 @@ export function snapTime(
 
 /** Validate after a series of operations (e.g. before saving). */
 export function checkTimeline(t: unknown): Timeline {
-  return TimelineSchema.parse(t);
+  return ProjectDocSchema.parse(t);
 }

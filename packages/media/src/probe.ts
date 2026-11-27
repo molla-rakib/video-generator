@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { ffmpegBinary } from "./paths";
 
 const execFileAsync = promisify(execFile);
 
@@ -44,7 +45,7 @@ export function parseFfprobe(output: FfprobeOutput): MediaInfo {
 }
 
 /** Inspect a local media file with ffprobe. */
-export async function probeMedia(filePath: string, ffprobePath = process.env.FFPROBE_PATH ?? "ffprobe"): Promise<MediaInfo> {
+export async function probeMedia(filePath: string, ffprobePath = ffmpegBinary("ffprobe")): Promise<MediaInfo> {
   let stdout: string;
   try {
     ({ stdout } = await execFileAsync(

@@ -4,8 +4,8 @@ import { connection } from "next/server";
 import {
   DatabaseUnavailableError,
   getProject,
-  getScript,
   getTimeline,
+  InvalidProjectFileError,
   listMediaAssets,
   listRecentJobs,
 } from "@studio/database";
@@ -26,23 +26,31 @@ export default async function EditorPage({ params }: PageProps<"/projects/[proje
   await connection();
   const { projectId } = await params;
   const data = await load(projectId);
-  if (!data) return <DatabaseUnavailable />;
-  const [project, timeline, script, media, jobs] = data;
-  return <Editor project={project} initialTimeline={timeline} initialScript={script} initialMedia={media} initialJobs={jobs} />;
+  if (data === "db") return <DatabaseUnavailable />;
+  if (typeof data === "string") return <ProjectFileProblem message={data} />;
+  const [project, timeline, media, jobs] = data;
+  return <Editor project={project} initialTimeline={timeline} initialMedia={media} initialJobs={jobs} />;
 }
 
 async function load(projectId: string) {
   try {
-    return await Promise.all([
-      getProject(projectId),
-      getTimeline(projectId),
-      getScript(projectId),
-      listMediaAssets({ projectId }),
-      listRecentJobs(projectId),
-    ]);
+    return await Promise.all([getProject(projectId), getTimeline(projectId), listMediaAssets({ projectId }), listRecentJobs(projectId)]);
   } catch (error) {
+    if (error instanceof InvalidProjectFileError) return error.message;
     if (error instanceof NotFoundError) notFound();
-    if (error instanceof DatabaseUnavailableError) return null;
+    if (error instanceof DatabaseUnavailableError) return "db" as const;
     throw error;
   }
+}
+
+function ProjectFileProblem({ message }: { message: string }) {
+  return (
+    <div className="mx-auto max-w-xl space-y-3 p-10">
+      <h1 className="text-xl font-semibold">This project can’t be opened</h1>
+      <p className="text-sm text-muted-foreground">{message}</p>
+      <p className="text-sm text-muted-foreground">
+        Fix <code>project.json</code> in the project folder (or restore a copy from its <code>history/</code> folder) and reload this page.
+      </p>
+    </div>
+  );
 }

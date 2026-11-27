@@ -1,21 +1,31 @@
 import { z } from "zod";
-import { createProject, enqueue, listProjects } from "@studio/database";
+import { createProject, listProjects, registerProjectFiles, touchProject } from "@studio/database";
+import { AspectRatioSchema } from "@studio/shared";
 import { apiHandler, readJson } from "@/lib/server/api";
+import { buildSampleProject } from "@/lib/server/sample-project";
 
 export const GET = apiHandler(async () => Response.json({ projects: await listProjects() }));
 
 const CreateBody = z.object({
   project: z.record(z.string(), z.unknown()),
-  /** Ask the Story Agent to write the first script right away. */
-  writeScript: z.object({ targetMinutes: z.number().min(0.5).max(60) }).nullable().default(null),
+  /** Fill the new project with the built-in sample (scenes, music, SFX, captions). */
+  sample: z.boolean().default(false),
 });
 
 export const POST = apiHandler(async (request: Request) => {
   const body = CreateBody.parse(await readJson(request));
-  const project = await createProject(body.project as Parameters<typeof createProject>[0]);
-  let job = null;
-  if (body.writeScript && project.topic.trim()) {
-    job = await enqueue("story.write", project.id, { topic: project.topic, targetMinutes: body.writeScript.targetMinutes });
+  if (!body.sample) {
+    const project = await createProject(body.project as Parameters<typeof createProject>[0]);
+    return Response.json({ project }, { status: 201 });
   }
-  return Response.json({ project, job }, { status: 201 });
+  const ratio = AspectRatioSchema.catch("9:16").parse(body.project.aspectRatio);
+  let mediaFiles: Array<{ path: string; role: string; name: string }> = [];
+  const project = await createProject(body.project as Parameters<typeof createProject>[0], async (projectId) => {
+    const built = await buildSampleProject(projectId, ratio);
+    mediaFiles = built.mediaFiles;
+    return built.timeline;
+  });
+  await registerProjectFiles(project.id, mediaFiles);
+  await touchProject(project.id, "Sample project created");
+  return Response.json({ project }, { status: 201 });
 });

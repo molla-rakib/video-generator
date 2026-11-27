@@ -1,5 +1,4 @@
-import { createMediaAsset, getMediaAsset, touchProject, updateMediaAsset, updateScript, type MediaAsset, type MediaKind } from "@studio/database";
-import { refitVisuals, relayoutNarration } from "./voice";
+import { createMediaAsset, getMediaAsset, touchProject, updateMediaAsset, type MediaAsset, type MediaKind } from "@studio/database";
 import { extractFilmstrip, extractThumbnail, extractWaveform, getStorage, probeMedia, projectKey, safeFileName } from "@studio/media";
 import type { JobContext } from "../context";
 
@@ -41,8 +40,13 @@ export async function processAsset(assetId: string): Promise<MediaAsset> {
     }
     if (asset.kind === "video" && info.durationSeconds) {
       const key = derivedKey(asset.projectId, asset.id, "strip.jpg");
-      patch.filmstripFrames = await extractFilmstrip(file, await storage.localPath(key).then(ensureDir), info.durationSeconds);
-      patch.filmstripKey = key;
+      // Optional: some FFmpeg builds lack the filters for this.
+      try {
+        patch.filmstripFrames = await extractFilmstrip(file, await storage.localPath(key).then(ensureDir), info.durationSeconds);
+        patch.filmstripKey = key;
+      } catch (error) {
+        console.warn(`[media] no filmstrip for ${asset.id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
     return await updateMediaAsset(asset.id, { ...patch, status: "ready", error: null });
   } catch (error) {
@@ -59,28 +63,10 @@ async function ensureDir(file: string): Promise<string> {
   return file;
 }
 
-export async function runMediaProcess(ctx: JobContext, input: { assetId: string; shotId: string | null }): Promise<Record<string, unknown>> {
+export async function runMediaProcess(ctx: JobContext, input: { assetId: string }): Promise<Record<string, unknown>> {
   await ctx.progress(0.1, "Reading the file");
   const asset = await processAsset(input.assetId);
-  // Uploaded narration for a scene replaces that scene's voice-over.
-  if (asset.kind === "audio" && asset.role === "narration" && asset.sceneId) {
-    await ctx.progress(0.8, "Placing narration on the timeline");
-    await updateScript(ctx.projectId, (s) => ({
-      ...s,
-      scenes: s.scenes.map((sc) => (sc.id === asset.sceneId ? { ...sc, narrationAssetId: asset.id } : sc)),
-    }));
-    await relayoutNarration(ctx.projectId);
-  }
-  // An uploaded picture/video chosen for a planned shot.
-  if (input.shotId && (asset.kind === "image" || asset.kind === "video")) {
-    await ctx.progress(0.8, "Placing the picture on the timeline");
-    const { script } = await updateScript(ctx.projectId, (s) => ({
-      ...s,
-      scenes: s.scenes.map((sc) => ({ ...sc, shots: sc.shots.map((sh) => (sh.id === input.shotId ? { ...sh, assetId: asset.id } : sh)) })),
-    }));
-    await refitVisuals(ctx.projectId, script);
-  }
-  if (asset.kind === "image" && asset.thumbnailKey) await touchProject(ctx.projectId, "Picture uploaded", { thumbnailKey: asset.thumbnailKey });
+  if (asset.kind === "image" && asset.thumbnailKey) await touchProject(ctx.projectId, "Picture added", { thumbnailKey: asset.thumbnailKey });
   return { assetId: asset.id, durationSeconds: asset.durationSeconds };
 }
 
@@ -95,7 +81,6 @@ export async function storeGenerated(input: {
   mimeType: string;
   provider: string;
   prompt?: string | null;
-  sceneId?: string | null;
   generationSettings?: Record<string, unknown>;
 }): Promise<MediaAsset> {
   const storage = getStorage();
@@ -113,7 +98,6 @@ export async function storeGenerated(input: {
     sizeBytes,
     provider: input.provider,
     prompt: input.prompt ?? null,
-    sceneId: input.sceneId ?? null,
     generationSettings: input.generationSettings ?? {},
   });
   const ready = await processAsset(asset.id);

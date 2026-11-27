@@ -2,61 +2,49 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { Job, MediaAsset, Project, StoredScript, StoredTimeline } from "@studio/database";
-import { deleteClips, splitClip, type Script } from "@studio/timeline";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { Job, MediaAsset, Project, StoredTimeline } from "@studio/database";
+import { deleteClips, splitClip } from "@studio/timeline";
 import { api } from "@/lib/api-client";
+import { cn } from "@/lib/utils";
 import { EditorContext, type EditorContextValue } from "./context";
-import { AssistantPanel } from "./panels/assistant-panel";
+import { ClaudeStatusBar } from "./ask-claude";
 import { ClipInspector } from "./panels/clip-inspector";
 import { MediaPanel } from "./panels/media-panel";
-import { ScriptPanel } from "./panels/script-panel";
 import { Preview } from "./preview";
 import { EditorStore, PlayheadStore, useEditor } from "./store";
 import { TimelineView } from "./timeline/timeline";
 import { TopBar } from "./top-bar";
 
 interface Status {
-  timelineRevision: number;
-  scriptRevision: number;
+  fingerprint: string;
   media: string;
-  chat: string;
   jobs: Job[];
+  files: Record<string, string | null>;
 }
 
 export function Editor(props: {
   project: Project;
   initialTimeline: StoredTimeline;
-  initialScript: StoredScript;
   initialMedia: MediaAsset[];
   initialJobs: Job[];
 }) {
   const { project } = props;
   const [store] = useState(
-    () => new EditorStore(project.id, props.initialTimeline.timeline, props.initialTimeline.revision, (m) => toast.error(m)),
+    () => new EditorStore(project.id, props.initialTimeline.timeline, props.initialTimeline.fingerprint, (m) => toast.error(m)),
   );
   const [playhead] = useState(() => new PlayheadStore());
   const [media, setMedia] = useState(props.initialMedia);
   const [jobs, setJobs] = useState(props.initialJobs);
-  const [script, setScript] = useState(props.initialScript);
-  const [leftTab, setLeftTab] = useState<"script" | "media" | "clip">(props.initialScript.script.scenes.length ? "script" : "script");
-  const [chatVersion, setChatVersion] = useState("");
+  const [fileVersions, setFileVersions] = useState<Record<string, string | null>>({});
   const lastStatus = useRef<Status | null>(null);
-  const scriptSaving = useRef(false);
-  const scriptRevision = useRef(props.initialScript.revision);
 
   const mediaById = useMemo(() => new Map(media.map((m) => [m.id, m])), [media]);
+  const mediaByPath = useMemo(() => new Map(media.filter((m) => m.kind !== "render").map((m) => [m.path, m])), [media]);
 
   // ---- Data refreshers ------------------------------------------------------
   const refreshMedia = useCallback(async () => {
     const { media } = await api<{ media: MediaAsset[] }>(`/api/projects/${project.id}/media`);
     setMedia(media);
-  }, [project.id]);
-
-  const refreshScript = useCallback(async () => {
-    const s = await api<StoredScript>(`/api/projects/${project.id}/script`);
-    scriptRevision.current = s.revision;
-    setScript(s);
   }, [project.id]);
 
   const refreshJobs = useCallback(async () => {
@@ -66,31 +54,32 @@ export function Editor(props: {
 
   const reloadTimeline = useCallback(async () => {
     const t = await api<StoredTimeline>(`/api/projects/${project.id}/timeline`);
-    store.load(t.timeline, t.revision);
+    store.load(t.timeline, t.fingerprint);
   }, [project.id, store]);
 
-  const saveScript = useCallback(
-    async (next: Script) => {
-      setScript((s) => ({ ...s, script: next }));
-      scriptSaving.current = true;
-      try {
-        const saved = await api<StoredScript>(`/api/projects/${project.id}/script`, {
-          method: "PUT",
-          json: { script: next, baseRevision: scriptRevision.current },
-        });
-        scriptRevision.current = saved.revision;
-        setScript(saved);
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : "The script couldn't be saved.");
-        await refreshScript();
-      } finally {
-        scriptSaving.current = false;
-      }
+  /** Claude finished: show what it changed, with a one-click undo. */
+  const announceClaude = useCallback(
+    (job: Job) => {
+      const result = (job.result ?? {}) as { summary?: string; backup?: string };
+      toast.success(result.summary || "Claude finished the change.", {
+        duration: 15000,
+        action: result.backup
+          ? {
+              label: "Undo",
+              onClick: () => {
+                api(`/api/projects/${project.id}/history/restore`, { method: "POST", json: { backup: result.backup } })
+                  .then(() => reloadTimeline())
+                  .then(() => toast.message("Claude's change was undone."))
+                  .catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Couldn't undo."));
+              },
+            }
+          : undefined,
+      });
     },
-    [project.id, refreshScript],
+    [project.id, reloadTimeline],
   );
 
-  // ---- Polling for outside changes (AI agents, background tasks) ----------
+  // ---- Polling for outside changes (agent edits, background tasks) --------
   useEffect(() => {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -101,16 +90,16 @@ export function Editor(props: {
         const prev = lastStatus.current;
         lastStatus.current = status;
         setJobs(status.jobs);
-        setChatVersion(status.chat);
+        setFileVersions((current) => (JSON.stringify(current) === JSON.stringify(status.files) ? current : status.files));
         const editor = store.getSnapshot();
-        if (status.timelineRevision > editor.revision && !editor.dirty && !editor.saving && !editor.draft) await reloadTimeline();
-        if (status.scriptRevision > scriptRevision.current && !scriptSaving.current) await refreshScript();
+        if (status.fingerprint !== editor.fingerprint && !editor.dirty && !editor.saving && !editor.draft) await reloadTimeline();
         if (!prev || prev.media !== status.media) await refreshMedia();
         // A task just finished: tell the user.
         for (const job of status.jobs) {
           const before = prev?.jobs.find((j) => j.id === job.id);
           if (before && before.status !== job.status) {
-            if (job.status === "completed" && job.type !== "assistant.turn" && job.type !== "media.process") toast.success(`${job.title} — done.`);
+            if (job.status === "completed" && job.type === "agent.revise") announceClaude(job);
+            else if (job.status === "completed" && job.type !== "media.process") toast.success(`${job.title} — done.`);
             if (job.status === "failed") toast.error(job.error?.userMessage ?? `${job.title} failed.`);
           }
         }
@@ -118,14 +107,21 @@ export function Editor(props: {
         // Temporary network/database hiccup — try again next tick.
       }
       const active = lastStatus.current?.jobs.some((j) => j.status === "pending" || j.status === "running");
-      timer = setTimeout(tick, active ? 1500 : 4000);
+      timer = setTimeout(tick, active ? 1500 : 3000);
     };
     void tick();
     return () => {
       stopped = true;
       clearTimeout(timer);
     };
-  }, [project.id, store, reloadTimeline, refreshScript, refreshMedia]);
+  }, [project.id, store, reloadTimeline, refreshMedia, announceClaude]);
+
+  // Dark + lime editor theme for the whole page while the editor is open
+  // (so the sidebar, dialogs, menus and toasts match).
+  useEffect(() => {
+    document.documentElement.classList.add("theme-editor");
+    return () => document.documentElement.classList.remove("theme-editor");
+  }, []);
 
   // Save before leaving the page.
   useEffect(() => {
@@ -155,11 +151,11 @@ export function Editor(props: {
   );
 
   const upload = useCallback(
-    async (files: File[], extra: { role?: string; sceneId?: string; shotId?: string } = {}) => {
+    async (files: File[], extra: { role?: string } = {}) => {
       for (const file of files) {
         const id = toast.loading(`Uploading ${file.name}…`);
         try {
-          const params = new URLSearchParams({ name: file.name, ...Object.fromEntries(Object.entries(extra).filter(([, v]) => v)) });
+          const params = new URLSearchParams({ name: file.name, ...(extra.role ? { role: extra.role } : {}) });
           await api(`/api/projects/${project.id}/media?${params}`, {
             method: "POST",
             body: file,
@@ -175,13 +171,7 @@ export function Editor(props: {
     [project.id, refreshMedia, refreshJobs],
   );
 
-  const inspect = useCallback(
-    (clipId: string) => {
-      store.select([clipId]);
-      setLeftTab("clip");
-    },
-    [store],
-  );
+  const inspect = useCallback((clipId: string) => store.select([clipId]), [store]);
 
   // ---- Keyboard shortcuts ---------------------------------------------------
   useEffect(() => {
@@ -199,6 +189,9 @@ export function Editor(props: {
       } else if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
         void store.save();
+      } else if (e.key === "Escape") {
+        store.select([]);
+        store.setRange(null);
       } else if (e.key === " ") {
         e.preventDefault();
         playhead.controls?.toggle();
@@ -227,50 +220,43 @@ export function Editor(props: {
     playhead,
     media,
     mediaById,
+    mediaByPath,
+    fileVersions,
     jobs,
-    script,
-    saveScript,
     refreshMedia,
-    refreshScript,
     refreshJobs,
     startJob,
     upload,
     inspect,
-    setLeftTab,
   };
 
   return (
     <EditorContext.Provider value={value}>
-      <div className="flex h-full min-h-0 flex-col">
-        <TopBar onReload={reloadTimeline} />
+      <div className="theme-editor flex h-full min-h-0 flex-col bg-background text-foreground">
+        <TopBar />
         <ConflictBanner store={store} onReload={reloadTimeline} />
+        <ClaudeStatusBar />
         <div className="flex min-h-0 flex-1">
-          <Tabs value={leftTab} onValueChange={(v) => setLeftTab(v as typeof leftTab)} className="flex w-[360px] shrink-0 flex-col gap-0 border-r">
-            <TabsList className="m-2 grid grid-cols-3">
-              <TabsTrigger value="script">Script</TabsTrigger>
-              <TabsTrigger value="media">Media</TabsTrigger>
-              <TabsTrigger value="clip">Clip</TabsTrigger>
-            </TabsList>
-            <TabsContent value="script" className="min-h-0 flex-1 overflow-y-auto">
-              <ScriptPanel />
-            </TabsContent>
-            <TabsContent value="media" className="min-h-0 flex-1 overflow-y-auto">
-              <MediaPanel />
-            </TabsContent>
-            <TabsContent value="clip" className="min-h-0 flex-1 overflow-y-auto">
-              <ClipInspector />
-            </TabsContent>
-          </Tabs>
-          <div className="flex min-w-0 flex-1 flex-col">
-            <div className="flex min-h-0 flex-1">
-              <Preview />
-              <AssistantPanel chatVersion={chatVersion} />
-            </div>
-            <TimelineView />
-          </div>
+          <SidePanel title="Media" side="left">
+            <MediaPanel />
+          </SidePanel>
+          <Preview />
+          <SidePanel title="Clip settings" side="right">
+            <ClipInspector />
+          </SidePanel>
         </div>
+        <TimelineView />
       </div>
     </EditorContext.Provider>
+  );
+}
+
+function SidePanel({ title, side, children }: { title: string; side: "left" | "right"; children: React.ReactNode }) {
+  return (
+    <aside className={cn("flex w-[300px] shrink-0 flex-col bg-background xl:w-[330px]", side === "left" ? "border-r" : "border-l")} aria-label={title}>
+      <h2 className="flex h-10 shrink-0 items-center border-b px-4 text-sm font-semibold">{title}</h2>
+      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+    </aside>
   );
 }
 
@@ -279,7 +265,7 @@ function ConflictBanner({ store, onReload }: { store: EditorStore; onReload: () 
   if (!conflict) return null;
   return (
     <div className="flex flex-wrap items-center gap-3 border-b bg-warning-soft px-4 py-2 text-sm">
-      <span className="flex-1">The timeline was changed elsewhere (the AI assistant or another tab) while you were editing.</span>
+      <span className="flex-1">The project was changed elsewhere (the AI agent, a background task or another tab) while you were editing.</span>
       <button className="font-medium underline" onClick={() => void onReload()}>
         Load the latest version
       </button>

@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Media Library" };
 export default function MediaPage() {
   return (
     <PageContainer className="max-w-7xl">
-      <PageHeader title="Media Library" description="Every narration, picture, video and finished render across your documentaries." />
+      <PageHeader title="Media Library" description="Every sound, picture, video and finished export across your projects." />
       <MediaLibrary />
     </PageContainer>
   );

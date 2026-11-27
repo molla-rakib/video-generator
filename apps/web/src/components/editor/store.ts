@@ -4,9 +4,10 @@ import { useSyncExternalStore } from "react";
 import { TimelineOpError, type Timeline } from "@studio/timeline";
 
 /**
- * Editor state for the timeline: the committed timeline, a live "draft"
- * used while dragging, undo/redo history and autosave bookkeeping.
- * Kept outside React so high-frequency updates stay cheap.
+ * Editor state for the timeline (the project's project.json): the
+ * committed timeline, a live "draft" used while dragging, undo/redo history
+ * and autosave bookkeeping. Kept outside React so high-frequency updates
+ * stay cheap.
  */
 
 type Listener = () => void;
@@ -15,7 +16,8 @@ export interface EditorSnapshot {
   timeline: Timeline;
   /** Shown instead of `timeline` while a drag is in progress. */
   draft: Timeline | null;
-  revision: number;
+  /** Version of project.json the editor is based on. */
+  fingerprint: string;
   canUndo: boolean;
   canRedo: boolean;
   dirty: boolean;
@@ -23,6 +25,8 @@ export interface EditorSnapshot {
   saveError: string | null;
   conflict: boolean;
   selected: string[];
+  /** A time range picked on the timeline (seconds), e.g. to ask Claude about that part. */
+  range: { start: number; end: number } | null;
   zoom: number;
   snap: boolean;
 }
@@ -41,13 +45,13 @@ export class EditorStore {
   constructor(
     private readonly projectId: string,
     timeline: Timeline,
-    revision: number,
+    fingerprint: string,
     private readonly onError: (message: string) => void,
   ) {
     this.state = {
       timeline,
       draft: null,
-      revision,
+      fingerprint,
       canUndo: false,
       canRedo: false,
       dirty: false,
@@ -55,6 +59,7 @@ export class EditorStore {
       saveError: null,
       conflict: false,
       selected: [],
+      range: null,
       zoom: 40,
       snap: true,
     };
@@ -120,14 +125,16 @@ export class EditorStore {
   };
 
   select = (ids: string[]) => this.set({ selected: ids });
+  setRange = (range: { start: number; end: number } | null) => this.set({ range });
   setZoom = (zoom: number) => this.set({ zoom: Math.min(400, Math.max(4, zoom)) });
   toggleSnap = () => this.set({ snap: !this.state.snap });
 
-  /** Replace with the server's version (after outside changes). Clears history. */
-  load = (timeline: Timeline, revision: number) => {
+  /** Replace with the version on disk (after outside changes). Clears history. */
+  load = (timeline: Timeline, fingerprint: string) => {
     this.past = [];
     this.future = [];
-    this.set({ timeline, revision, dirty: false, conflict: false, saveError: null, draft: null });
+    const selected = this.state.selected.filter((id) => timeline.clips.some((c) => c.id === id));
+    this.set({ timeline, fingerprint, selected, dirty: false, conflict: false, saveError: null, draft: null });
   };
 
   private scheduleSave() {
@@ -144,26 +151,26 @@ export class EditorStore {
     const snapshot = this.pendingSnapshot;
     this.set({ saving: true, saveError: null });
     try {
-      let baseRevision = this.state.revision;
+      let baseFingerprint = this.state.fingerprint;
       if (force) {
-        const r = await fetch(`/api/projects/${this.projectId}/timeline?revisionOnly=1`).then((x) => x.json() as Promise<{ revision: number }>);
-        baseRevision = r.revision;
+        const r = await fetch(`/api/projects/${this.projectId}/timeline?fingerprintOnly=1`).then((x) => x.json() as Promise<{ fingerprint: string }>);
+        baseFingerprint = r.fingerprint;
       }
       const response = await fetch(`/api/projects/${this.projectId}/timeline`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ timeline, baseRevision, snapshot: snapshot ?? undefined }),
+        body: JSON.stringify({ timeline, baseFingerprint, snapshot: snapshot ?? undefined }),
       });
       if (response.status === 409) {
         this.set({ saving: false, conflict: true });
         return;
       }
-      const body = (await response.json()) as { revision?: number; error?: { message: string } };
-      if (!response.ok || !body.revision) throw new Error(body.error?.message ?? "Couldn't save the timeline.");
+      const body = (await response.json()) as { fingerprint?: string; error?: { message: string } };
+      if (!response.ok || !body.fingerprint) throw new Error(body.error?.message ?? "Couldn't save the project.");
       this.pendingSnapshot = null;
       // Only clear "dirty" if nothing changed while saving.
       const unchanged = counter === this.editCounter && this.state.timeline === timeline;
-      this.set({ saving: false, revision: body.revision, dirty: !unchanged, conflict: false });
+      this.set({ saving: false, fingerprint: body.fingerprint, dirty: !unchanged, conflict: false });
       if (!unchanged) this.scheduleSave();
     } catch (error) {
       this.set({ saving: false, saveError: error instanceof Error ? error.message : "Couldn't save." });

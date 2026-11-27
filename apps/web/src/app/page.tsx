@@ -24,14 +24,14 @@ export default async function ProjectsPage() {
           <span className="mb-6 flex size-14 items-center justify-center rounded-2xl bg-surface ring-1 ring-border">
             <Clapperboard className="size-6 text-muted-foreground" aria-hidden />
           </span>
-          <h1 className="text-3xl font-semibold tracking-tight">আপনার প্রথম ডকুমেন্টারি তৈরি করুন</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">আপনার প্রথম কার্টুন ভিডিও তৈরি করুন</h1>
           <p className="mt-3 text-base text-muted-foreground">
-            Start with a topic. The AI writes the Bangla script, creates the narration and subtitles, plans the visuals — and
-            you shape it all on the timeline.
+            Your cartoon arrives as editable pieces — scenes, music, sound effects and captions. Add your own clips, change any
+            volume, remove what you don’t need, and export in every shape you publish to.
           </p>
           <Button asChild size="lg" className="mt-8">
             <Link href="/projects/new">
-              <Plus aria-hidden /> Create Documentary
+              <Plus aria-hidden /> New video
             </Link>
           </Button>
         </div>
@@ -43,11 +43,11 @@ export default async function ProjectsPage() {
     <PageContainer>
       <PageHeader
         title="Projects"
-        description="Open a documentary to keep editing."
+        description="Open a video to keep editing."
         actions={
           <Button asChild>
             <Link href="/projects/new">
-              <Plus aria-hidden /> Create Documentary
+              <Plus aria-hidden /> New video
             </Link>
           </Button>
         }

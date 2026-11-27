@@ -13,6 +13,7 @@
     "@anthropic-ai/sdk": "1.14.0",
     "@studio/database": "0.1.0",
     "@studio/shared": "0.1.0",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "@studio/media": "0.1.0"
   }
 }

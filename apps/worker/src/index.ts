@@ -1,6 +1,5 @@
 import os from "node:os";
 import {
-  addChatMessage,
   claimNextJob,
   completeJob,
   connectDatabase,
@@ -14,21 +13,16 @@ import {
 import { ProviderError } from "@studio/providers";
 import { UserFacingError } from "@studio/shared";
 import { createContext, JobCancelledError } from "./context";
-import { runAssistantTurn } from "./jobs/assistant";
+import { runAgentRevise } from "./jobs/agent";
 import { runMediaProcess } from "./jobs/media";
 import { runRender } from "./jobs/render";
-import { runStoryWrite } from "./jobs/story";
-import { runSubtitles } from "./jobs/subtitles";
-import { runImages, runStoryboard } from "./jobs/visuals";
-import { runVoiceGenerate } from "./jobs/voice";
 import { startMediaServer } from "./static-server";
 
 /**
- * Documentary Studio background worker.
+ * Studio background worker.
  *
- * Claims jobs from MongoDB and runs them: media processing, AI writing,
- * voice, transcription, image generation and Remotion rendering. Renders
- * run one at a time; other work runs a few jobs in parallel.
+ * Claims jobs from MongoDB and runs them: media processing and Remotion
+ * exports. Exports run one at a time; other work runs a few jobs in parallel.
  */
 
 const WORKER_ID = `${os.hostname()}:${process.pid}`;
@@ -50,13 +44,8 @@ async function main() {
 
   const handlers: Record<JobType, (job: Job, ctx: ReturnType<typeof createContext>) => Promise<Record<string, unknown>>> = {
     "media.process": (job, ctx) => runMediaProcess(ctx, parseJobInput("media.process", job.input)),
-    "story.write": (job, ctx) => runStoryWrite(ctx, parseJobInput("story.write", job.input)),
-    "voice.generate": (job, ctx) => runVoiceGenerate(ctx, parseJobInput("voice.generate", job.input)),
-    "subtitles.generate": (job, ctx) => runSubtitles(ctx, parseJobInput("subtitles.generate", job.input)),
-    "storyboard.plan": (job, ctx) => runStoryboard(ctx, parseJobInput("storyboard.plan", job.input)),
-    "images.generate": (job, ctx) => runImages(ctx, parseJobInput("images.generate", job.input)),
-    render: (job, ctx) => runRender(ctx, parseJobInput("render", job.input), media.urlFor),
-    "assistant.turn": (job, ctx) => runAssistantTurn(ctx, parseJobInput("assistant.turn", job.input)),
+    render: (job, ctx) => runRender(ctx, parseJobInput("render", job.input), media),
+    "agent.revise": (job, ctx) => runAgentRevise(ctx, parseJobInput("agent.revise", job.input)),
   };
   const allTypes = Object.keys(handlers);
 
@@ -80,11 +69,8 @@ async function main() {
         error instanceof UserFacingError ? error.message : "Something went wrong while doing this. You can try again.";
       const detail = error instanceof ProviderError ? `${error.message} ${error.detail}` : error instanceof Error ? (error.stack ?? error.message) : String(error);
       const retryable = error instanceof ProviderError ? error.retryable : !(error instanceof UserFacingError);
-      const status = await failJob(job.id, WORKER_ID, { userMessage, detail: detail.slice(0, 4000), retryable });
+      await failJob(job.id, WORKER_ID, { userMessage, detail: detail.slice(0, 4000), retryable });
       console.error(`[worker] ✗ ${job.type} ${job.id}: ${detail.split("\n")[0]}`);
-      if (job.type === "assistant.turn" && status === "failed" && job.projectId) {
-        await addChatMessage({ projectId: job.projectId, role: "assistant", text: `⚠️ ${userMessage}`, jobId: job.id }).catch(() => {});
-      }
     }
   };
 

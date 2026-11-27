@@ -4,20 +4,28 @@ import { useRef, useState } from "react";
 import { AlertCircle, FileAudio, Film, ImageIcon, Loader2, Plus, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import type { MediaAsset } from "@studio/database";
-import { addClip, addTrack, defaultTrackFor, formatClock, TRACK_FOR_CLIP } from "@studio/timeline";
+import { formatClock } from "@studio/timeline";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { api } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { mediaUrl, useEditorContext } from "../context";
+import { placeAsset } from "../place-asset";
 import { ASSET_DRAG_TYPE } from "../timeline/timeline";
 
 const FILTERS = [
   { id: "all", label: "All" },
-  { id: "audio", label: "Audio" },
-  { id: "image", label: "Pictures" },
   { id: "video", label: "Video" },
+  { id: "image", label: "Pictures" },
+  { id: "audio", label: "Sound" },
 ] as const;
+
+const ROLE_LABELS: Record<string, string> = {
+  voice: "Voice",
+  music: "Music",
+  sfx: "SFX",
+  ambience: "Ambience",
+};
 
 export function MediaPanel() {
   const { media, upload, refreshMedia } = useEditorContext();
@@ -42,23 +50,23 @@ export function MediaPanel() {
         if (!e.dataTransfer.files.length) return;
         e.preventDefault();
         setDragOver(false);
-        void upload([...e.dataTransfer.files]);
+        void upload([...e.dataTransfer.files], role ? { role } : {});
       }}
     >
       <div className="rounded-lg border border-dashed p-3 text-center">
-        <p className="text-sm text-muted-foreground">Drop audio, pictures or video here</p>
+        <p className="text-sm text-muted-foreground">Drop your own video (like a face-cam clip), pictures, music or sound effects here</p>
         <div className="mt-2 flex items-center justify-center gap-2">
           <select
             value={role}
             onChange={(e) => setRole(e.target.value)}
             className="h-8 rounded-md border bg-background px-2 text-xs"
-            aria-label="What is this file?"
+            aria-label="What is this sound?"
           >
-            <option value="">Auto-detect</option>
-            <option value="narration">Narration</option>
+            <option value="">Sound type: auto</option>
             <option value="music">Music</option>
             <option value="sfx">Sound effect</option>
             <option value="ambience">Ambience</option>
+            <option value="voice">Voice</option>
           </select>
           <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()}>
             <Upload /> Upload
@@ -69,7 +77,7 @@ export function MediaPanel() {
           type="file"
           multiple
           hidden
-          accept="audio/*,image/png,image/jpeg,image/webp,video/*"
+          accept="audio/*,image/png,image/jpeg,image/webp,image/gif,video/*"
           onChange={(e) => {
             const files = [...(e.target.files ?? [])];
             e.target.value = "";
@@ -91,7 +99,7 @@ export function MediaPanel() {
       </div>
 
       {items.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">No files yet. Generated narration and pictures also appear here.</p>
+        <p className="py-8 text-center text-sm text-muted-foreground">No files yet. Generated music and sound effects also appear here.</p>
       ) : (
         <ul className="grid grid-cols-2 gap-2">
           {items.map((a) => (
@@ -127,26 +135,7 @@ function MediaTile({ asset, onPreview, onDeleted }: { asset: MediaAsset; onPrevi
   const ready = asset.status === "ready";
 
   function addAtPlayhead() {
-    const kind = asset.kind === "image" ? "image" : asset.kind === "video" ? "video" : "audio";
-    store.apply((t) => {
-      let next = t;
-      const want = TRACK_FOR_CLIP[kind];
-      let track = defaultTrackFor(next, kind, asset.role);
-      if (!track) ({ timeline: next, track } = addTrack(next, want));
-      return addClip(next, {
-        trackId: track.id,
-        kind,
-        assetId: asset.id,
-        label: asset.name,
-        start: playhead.time,
-        duration: kind === "image" ? 5 : (asset.durationSeconds ?? 5),
-        sourceDuration: kind === "image" ? null : asset.durationSeconds,
-        motion: kind === "image" ? "zoom_in" : "none",
-        transition: kind === "audio" ? "none" : "fade",
-        volume: asset.role === "music" ? 0.3 : 1,
-        sceneId: asset.sceneId,
-      }).timeline;
-    });
+    store.apply((t) => placeAsset(t, asset, playhead.time));
   }
 
   async function remove() {
@@ -188,8 +177,8 @@ function MediaTile({ asset, onPreview, onDeleted }: { asset: MediaAsset; onPrevi
           {asset.durationSeconds ? (
             <span className="absolute right-1 bottom-1 rounded bg-background/90 px-1 text-[10px] tabular-nums">{formatClock(asset.durationSeconds)}</span>
           ) : null}
-          {asset.role && asset.role !== "visual" ? (
-            <span className="absolute top-1 left-1 rounded bg-background/90 px-1 text-[10px] capitalize">{asset.role}</span>
+          {asset.role && ROLE_LABELS[asset.role] ? (
+            <span className="absolute top-1 left-1 rounded bg-background/90 px-1 text-[10px]">{ROLE_LABELS[asset.role]}</span>
           ) : null}
         </div>
         <p className="truncate px-1.5 py-1 text-[11px]" title={asset.name}>

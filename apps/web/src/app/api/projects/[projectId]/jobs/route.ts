@@ -11,8 +11,8 @@ export const GET = apiHandler(async (_request: NextRequest, ctx: Context) => {
   return Response.json({ jobs: await listRecentJobs(projectId) });
 });
 
-/** Jobs the editor may start directly. (The assistant uses the chat endpoint.) */
-const STARTABLE: JobType[] = ["story.write", "voice.generate", "subtitles.generate", "storyboard.plan", "images.generate", "render"];
+/** Jobs the editor may start directly. */
+const STARTABLE: JobType[] = ["render", "agent.revise"];
 
 export const POST = apiHandler(async (request: NextRequest, ctx: Context) => {
   const { projectId } = await ctx.params;
@@ -21,6 +21,14 @@ export const POST = apiHandler(async (request: NextRequest, ctx: Context) => {
   if (!STARTABLE.includes(body.type as JobType) || !(body.type in JOB_INPUTS)) {
     throw new UserFacingError("That action isn't available.", "unknown_job", 400);
   }
-  const job = await enqueue(body.type as JobType, projectId, body.input as never);
+  if (body.type === "agent.revise") {
+    const jobs = await listRecentJobs(projectId);
+    if (jobs.some((j) => j.type === "agent.revise" && (j.status === "pending" || j.status === "running"))) {
+      throw new UserFacingError("Claude is already working on this video. Wait for it to finish, or cancel it first.", "agent_busy", 409);
+    }
+  }
+  const request_ = typeof body.input.request === "string" ? body.input.request.trim() : "";
+  const title = body.type === "agent.revise" ? `Claude: “${request_.length > 48 ? `${request_.slice(0, 47)}…` : request_}”` : undefined;
+  const job = await enqueue(body.type as JobType, projectId, body.input as never, title);
   return Response.json({ job }, { status: 201 });
 });

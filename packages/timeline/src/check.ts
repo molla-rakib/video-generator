@@ -7,33 +7,42 @@ export interface RenderIssue {
 }
 
 /**
- * Check a timeline before rendering. `assetIds` is the set of media that
- * exists and is ready; clips pointing anywhere else would render blank.
+ * Check a project before exporting. `files` is the set of project-relative
+ * paths that exist on disk (media files and scene components); clips
+ * pointing anywhere else would render blank.
  */
-export function checkRenderReadiness(t: Timeline, assetIds: ReadonlySet<string>): RenderIssue[] {
+export function checkRenderReadiness(t: Timeline, files: ReadonlySet<string>): RenderIssue[] {
   const issues: RenderIssue[] = [];
   if (t.clips.length === 0) {
-    issues.push({ severity: "error", message: "The timeline is empty. Add narration, pictures or video first." });
+    issues.push({ severity: "error", message: "The timeline is empty. Add scenes, video, pictures or sound first." });
     return issues;
   }
   for (const c of t.clips) {
-    if ((c.kind === "audio" || c.kind === "video" || c.kind === "image") && (!c.assetId || !assetIds.has(c.assetId))) {
-      issues.push({ severity: "error", clipId: c.id, message: `"${c.label || c.kind}" uses a file that is missing or still processing.` });
+    const name = `"${c.label || c.src || c.component || c.kind}"`;
+    if ((c.kind === "audio" || c.kind === "video" || c.kind === "image") && (!c.src || !files.has(c.src))) {
+      issues.push({ severity: "error", clipId: c.id, message: `${name} uses a file that is missing.` });
+    }
+    if (c.kind === "scene" && (!c.component || !files.has(c.component))) {
+      issues.push({ severity: "error", clipId: c.id, message: `The scene ${name} is missing its component file.` });
     }
     if (c.sourceDuration !== null && c.sourceStart + c.duration > c.sourceDuration + 0.05) {
-      issues.push({ severity: "warning", clipId: c.id, message: `"${c.label || c.kind}" is longer than its media; the end will freeze or go silent.` });
+      issues.push({ severity: "warning", clipId: c.id, message: `${name} is longer than its media; the end will freeze or go silent.` });
     }
-    if ((c.kind === "subtitle" || c.kind === "title") && !c.text.trim()) {
+    if ((c.kind === "caption" || c.kind === "title") && !c.text.trim()) {
       issues.push({ severity: "warning", clipId: c.id, message: "A text clip is empty." });
     }
   }
-  const hasVisual = t.clips.some((c) => (c.kind === "image" || c.kind === "video") && !t.tracks.find((tr) => tr.id === c.trackId)?.hidden);
-  if (!hasVisual) issues.push({ severity: "warning", message: "There are no pictures or video yet — the screen will be black." });
 
-  // Black gaps on the main picture lane.
+  // Black gaps in the picture (overlays don't count: they sit on top).
+  const shownTracks = new Set(t.tracks.filter((tr) => tr.kind === "video" && !tr.hidden).map((tr) => tr.id));
   const visual = t.clips
-    .filter((c) => c.kind === "image" || c.kind === "video")
+    .filter((c) => (c.kind === "scene" || c.kind === "image" || c.kind === "video") && shownTracks.has(c.trackId))
+    .filter((c) => c.layout.default === null)
     .sort((a, b) => a.start - b.start);
+  if (visual.length === 0) {
+    issues.push({ severity: "warning", message: "Nothing fills the screen yet — the video will be black." });
+    return issues;
+  }
   let covered = 0;
   for (const c of visual) {
     if (c.start - covered > 0.5) {
@@ -42,8 +51,18 @@ export function checkRenderReadiness(t: Timeline, assetIds: ReadonlySet<string>)
     covered = Math.max(covered, clipEnd(c));
   }
   const total = timelineDuration(t);
-  if (visual.length && total - covered > 0.5) {
+  if (total - covered > 0.5) {
     issues.push({ severity: "warning", message: `The screen is black for the last ${(total - covered).toFixed(1)} s.` });
   }
   return issues;
+}
+
+/** Every project file a timeline refers to (media and scene components). */
+export function referencedFiles(t: Timeline): string[] {
+  const out = new Set<string>();
+  for (const c of t.clips) {
+    if (c.src) out.add(c.src);
+    if (c.component) out.add(c.component);
+  }
+  return [...out];
 }

@@ -2,10 +2,10 @@ export { connectDatabase, disconnectDatabase, databaseUri, DatabaseUnavailableEr
 export * from "./models";
 export * from "./crypto";
 export * from "./repositories/projects";
-export * from "./repositories/timelines";
-export * from "./repositories/scripts";
+export * from "./repositories/project-file";
 export * from "./repositories/media";
 export * from "./repositories/settings";
-export * from "./repositories/chat";
 export * from "./repositories/jobs";
 export * from "./jobs-catalog";
+export * from "./repositories/project-media";
+export * from "./repositories/project-backups";

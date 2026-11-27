@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Check, CloudOff, ListChecks, Loader2, Redo2, RotateCcw, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
-import { ASPECT_RATIOS, type AspectRatio } from "@studio/shared";
+import { ASPECT_RATIOS, ASPECT_RATIO_LABELS, type AspectRatio } from "@studio/shared";
+import { setEditingRatio } from "@studio/timeline";
 import type { Job } from "@studio/database";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -17,13 +18,13 @@ import { useEditorContext } from "./context";
 import { RenderDialog } from "./render-dialog";
 import { useEditor } from "./store";
 
-export function TopBar({ onReload }: { onReload: () => Promise<void> }) {
+export function TopBar() {
   const { project, store } = useEditorContext();
   const router = useRouter();
   const canUndo = useEditor(store, (s) => s.canUndo);
   const canRedo = useEditor(store, (s) => s.canRedo);
+  const ratio = useEditor(store, (s) => s.timeline.ratio);
   const [title, setTitle] = useState(project.title);
-  const [aspect, setAspect] = useState<AspectRatio>(project.aspectRatio);
 
   async function rename() {
     const next = title.trim();
@@ -37,19 +38,6 @@ export function TopBar({ onReload }: { onReload: () => Promise<void> }) {
     }
   }
 
-  async function changeAspect(value: AspectRatio) {
-    setAspect(value);
-    try {
-      await store.save();
-      await api(`/api/projects/${project.id}`, { method: "PATCH", json: { aspectRatio: value } });
-      await onReload();
-      toast.success(`Video shape changed to ${value}.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Couldn't change the video shape.");
-      setAspect(project.aspectRatio);
-    }
-  }
-
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3">
       <input
@@ -58,7 +46,7 @@ export function TopBar({ onReload }: { onReload: () => Promise<void> }) {
         onBlur={rename}
         onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
         className="min-w-0 flex-1 truncate rounded-md bg-transparent px-2 py-1 text-base font-semibold hover:bg-surface focus:bg-surface focus:outline-none"
-        aria-label="Documentary title"
+        aria-label="Video name"
       />
       <SaveStatus />
       <div className="mx-1 h-6 w-px bg-border" />
@@ -78,14 +66,19 @@ export function TopBar({ onReload }: { onReload: () => Promise<void> }) {
         </TooltipTrigger>
         <TooltipContent>Redo (Ctrl+Shift+Z)</TooltipContent>
       </Tooltip>
-      <Select value={aspect} onValueChange={(v) => void changeAspect(v as AspectRatio)}>
-        <SelectTrigger size="sm" className="w-24" aria-label="Video shape">
+      <Select value={ratio} onValueChange={(v) => store.apply((t) => setEditingRatio(t, v as AspectRatio))}>
+        <SelectTrigger
+          size="sm"
+          className="w-44"
+          aria-label="Shape you are editing"
+          title="Preview and edit the video in another shape. Scenes re-frame themselves; overlays can have a different position per shape."
+        >
           <SelectValue />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent position="popper" align="end">
           {ASPECT_RATIOS.map((r) => (
             <SelectItem key={r} value={r}>
-              {r}
+              {r} <span className="text-muted-foreground">{ASPECT_RATIO_LABELS[r].name}</span>
             </SelectItem>
           ))}
         </SelectContent>
@@ -143,7 +136,7 @@ function TasksMenu() {
       <DropdownMenuContent align="end" className="w-96 p-0">
         <div className="border-b px-3 py-2 text-sm font-medium">Background tasks</div>
         {visible.length === 0 ? (
-          <p className="px-3 py-6 text-center text-sm text-muted-foreground">Nothing running. Generation and rendering tasks appear here.</p>
+          <p className="px-3 py-6 text-center text-sm text-muted-foreground">Nothing running. File preparation and exports appear here.</p>
         ) : (
           <ul className="max-h-96 divide-y overflow-y-auto">
             {visible.map((job) => (

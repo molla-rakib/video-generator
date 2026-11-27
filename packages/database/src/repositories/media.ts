@@ -24,8 +24,9 @@ export interface MediaAsset {
   filmstripFrames: number;
   provider: string | null;
   prompt: string | null;
-  sceneId: string | null;
   createdAt: string;
+  /** Path inside the project folder — what project.json clips use as `src`. */
+  path: string;
 }
 
 export function toMediaAsset(doc: MediaAssetDoc): MediaAsset {
@@ -50,8 +51,8 @@ export function toMediaAsset(doc: MediaAssetDoc): MediaAsset {
     filmstripFrames: doc.filmstripFrames,
     provider: doc.provider,
     prompt: doc.prompt,
-    sceneId: doc.sceneId,
     createdAt: doc.createdAt.toISOString(),
+    path: doc.storageKey.split("/").slice(2).join("/"),
   };
 }
 
@@ -70,7 +71,6 @@ export interface CreateMediaInput {
   provider?: string | null;
   prompt?: string | null;
   generationSettings?: Record<string, unknown>;
-  sceneId?: string | null;
   status?: MediaStatus;
 }
 
@@ -92,12 +92,14 @@ export async function listMediaAssets(filter: {
   kind?: MediaKind | MediaKind[];
   search?: string;
   ids?: string[];
+  storageKeys?: string[];
   limit?: number;
 }): Promise<MediaAsset[]> {
   await connectDatabase();
   const q: Record<string, unknown> = {};
   if (filter.projectId) q.projectId = toObjectId(filter.projectId, "project");
   if (filter.kind) q.kind = Array.isArray(filter.kind) ? { $in: filter.kind } : filter.kind;
+  if (filter.storageKeys) q.storageKey = { $in: filter.storageKeys };
   if (filter.ids) q._id = { $in: filter.ids.filter((i) => /^[a-f0-9]{24}$/.test(i)) };
   if (filter.search?.trim()) q.name = { $regex: filter.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
   const docs = await MediaAssetModel.find(q).sort({ createdAt: -1 }).limit(filter.limit ?? 500).lean<MediaAssetDoc[]>();
@@ -119,7 +121,6 @@ export async function updateMediaAsset(
       | "thumbnailKey"
       | "filmstripKey"
       | "filmstripFrames"
-      | "sceneId"
       | "role"
     >
   >,

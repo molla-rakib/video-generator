@@ -1,6 +1,10 @@
 export * from "./types";
 export * from "./registry";
 export { ClaudeBrain, DEFAULT_CLAUDE_MODEL } from "./anthropic";
+export { ClaudeCliBrain } from "./claude-cli";
 export { GptBrain, OpenAIImages, OpenAIWhisper, DEFAULT_GPT_MODEL, DEFAULT_IMAGE_MODEL } from "./openai";
 export { VoiceStudio, ElevenLabs, splitForSpeech } from "./speech";
 export { LocalWhisper } from "./whisper-local";
+export { ElevenLabsSounds } from "./elevenlabs-sounds";
+export { runClaudeCode, AgentCancelledError, type AgentEvent, type AgentRunOptions, type AgentRunResult } from "./claude-code-agent";
+export { listBuiltInSkills, builtInSkillsDir, type Skill } from "./skills";

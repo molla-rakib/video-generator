@@ -7,10 +7,7 @@ export const metadata: Metadata = { title: "Settings" };
 export default function SettingsPage() {
   return (
     <PageContainer className="max-w-3xl">
-      <PageHeader
-        title="Settings"
-        description="Connect the AI brain and the voice, transcription and picture services. Keys are encrypted on this computer and never sent to the browser."
-      />
+      <PageHeader title="Settings" description="Connect the services that make your videos, and see where your files are kept." />
       <SettingsForm />
     </PageContainer>
   );

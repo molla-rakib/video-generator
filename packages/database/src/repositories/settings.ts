@@ -64,13 +64,13 @@ export async function getProviderCredentials(
 
 export async function saveProviderSetting(
   provider: string,
-  update: { apiKey?: string | null; options?: Record<string, unknown> },
+  update: { apiKey?: string | null; options?: Record<string, unknown>; resetTest?: boolean },
 ): Promise<ProviderSettingView> {
   await connectDatabase();
   const $set: Record<string, unknown> = {};
   if (update.apiKey !== undefined) $set.encryptedKey = update.apiKey ? encryptSecret(update.apiKey.trim()) : null;
   if (update.options) for (const [k, v] of Object.entries(update.options)) $set[`options.${k}`] = v;
-  if (update.apiKey !== undefined) $set.lastTest = null;
+  if (update.apiKey !== undefined || update.resetTest) $set.lastTest = null;
   const doc = await ProviderSettingModel.findOneAndUpdate({ provider }, { $set, $setOnInsert: { provider } }, { returnDocument: "after", upsert: true }).lean<ProviderSettingDoc>();
   return toView(doc, provider);
 }

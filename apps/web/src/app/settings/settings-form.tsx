@@ -1,38 +1,90 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Loader2, PlugZap, XCircle } from "lucide-react";
+import {
+  AlertCircle,
+  AudioWaveform,
+  BookOpen,
+  Bot,
+  CheckCircle2,
+  ChevronRight,
+  CircleDashed,
+  Copy,
+  Database,
+  ExternalLink,
+  FolderOpen,
+  KeyRound,
+  Lightbulb,
+  Loader2,
+  Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
 import type { ProviderSettingView } from "@studio/database";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
-type ProviderView = ProviderSettingView & { fromEnvironment: boolean };
+type ClaudeConnection = "cli" | "apiKey";
+type ProviderView = ProviderSettingView & {
+  fromEnvironment: boolean;
+  connection?: ClaudeConnection;
+};
 interface SettingsData {
-  choices: { brain: "anthropic" | "openai" | null; voice: "voicestudio" | "elevenlabs"; transcriber: "whisper-local" | "openai-whisper" };
+  storage: { projects: string; secrets: string; database: string };
+  skills: Array<{ id: string; name: string; description: string }>;
   providers: Record<string, ProviderView>;
+}
+
+const SKILL_COLORS = ["bg-sky-100 text-sky-700", "bg-emerald-100 text-emerald-700", "bg-rose-100 text-rose-700", "bg-amber-100 text-amber-700"];
+
+function SkillsList({ skills }: { skills: SettingsData["skills"] }) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {skills.map((s, i) => (
+        <div key={s.id} className="flex gap-3 rounded-xl border bg-card p-4 shadow-xs">
+          <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg", SKILL_COLORS[i % SKILL_COLORS.length])}>
+            <BookOpen className="size-4" />
+          </span>
+          <div className="min-w-0 space-y-0.5">
+            <p className="flex items-center gap-2 text-sm font-medium">
+              {s.name.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase())}
+              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">Built in</span>
+            </p>
+            <p className="text-sm text-muted-foreground">{s.description}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function SettingsForm() {
   const [data, setData] = useState<SettingsData | null>(null);
-  const load = useCallback(async () => setData(await api<SettingsData>("/api/settings")), []);
+  const [open, setOpen] = useState<"claude" | "elevenlabs" | null>(null);
+  const load = useCallback(
+    async () => setData(await api<SettingsData>("/api/settings")),
+    [],
+  );
   useEffect(() => {
     let alive = true;
     api<SettingsData>("/api/settings")
       .then((d) => alive && setData(d))
-      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Couldn't load settings."));
+      .catch((e: unknown) =>
+        toast.error(e instanceof Error ? e.message : "Couldn't load settings."),
+      );
     return () => {
       alive = false;
     };
   }, []);
-
-  async function choose(patch: Partial<SettingsData["choices"]>) {
-    await api("/api/settings", { method: "PUT", json: { target: "choices", ...patch } });
-    await load();
-  }
 
   if (!data) {
     return (
@@ -41,278 +93,803 @@ export function SettingsForm() {
       </div>
     );
   }
-  const p = data.providers;
-  const brain = data.choices.brain ?? (p.anthropic?.hasKey || p.anthropic?.fromEnvironment ? "anthropic" : p.openai?.hasKey ? "openai" : "anthropic");
+  const claude = data.providers.anthropic!;
+  const eleven = data.providers.elevenlabs!;
+  const elevenConnected = eleven.hasKey || eleven.fromEnvironment;
 
   return (
     <div className="space-y-10">
-      <Section title="AI brain" description="Writes scripts, plans visuals and powers the assistant. Connect one or both, then choose which to use.">
-        <Choice
-          value={brain}
-          options={[
-            { id: "anthropic", label: "Claude", hint: "Anthropic" },
-            { id: "openai", label: "GPT", hint: "OpenAI" },
-          ]}
-          onChange={(v) => void choose({ brain: v as "anthropic" | "openai" })}
+      <section className="space-y-3">
+        <SectionTitle
+          title="Connections"
+          description="The services that make your cartoon. Only Claude is needed."
         />
-        <ProviderCard id="anthropic" title="Claude (Anthropic)" view={p.anthropic!} onSaved={load} keyLabel="Anthropic API key" options={[{ key: "model", label: "Model", placeholder: "claude-opus-5-5" }]} />
-        <ProviderCard
-          id="openai"
-          title="OpenAI"
-          view={p.openai!}
-          onSaved={load}
-          keyLabel="OpenAI API key"
-          hint="Also used for picture generation and (optionally) cloud transcription."
-          options={[
-            { key: "model", label: "Text model", placeholder: "gpt-6.2-astra" },
-            { key: "imageModel", label: "Image model", placeholder: "gpt-image-2.5-flare" },
-          ]}
+
+        <ServiceCard
+          tile="from-orange-400 to-amber-500"
+          icon={<Bot className="size-5" />}
+          title="Claude Code"
+          tag={{ label: "Required", tone: "orange" }}
+          description="Your AI animator. It reads the subtitles, writes the scenes and animation, and checks its own work."
+          status={
+            claude.lastTest
+              ? claude.lastTest.ok
+                ? "connected"
+                : "error"
+              : "unchecked"
+          }
+          statusText={claude.lastTest?.message}
+          action={claude.lastTest?.ok ? "Manage" : "Connect"}
+          onAction={() => setOpen("claude")}
         />
-      </Section>
 
-      <Section title="Bangla voice" description="Generates the narration. VoiceStudio runs on this computer; ElevenLabs is a cloud service.">
-        <Choice
-          value={data.choices.voice}
-          options={[
-            { id: "voicestudio", label: "VoiceStudio", hint: "On this computer" },
-            { id: "elevenlabs", label: "ElevenLabs", hint: "Cloud" },
-          ]}
-          onChange={(v) => void choose({ voice: v as "voicestudio" | "elevenlabs" })}
+        <ServiceCard
+          tile="from-slate-300 to-slate-400"
+          icon={<Sparkles className="size-5" />}
+          title="GPT (Codex)"
+          tag={{ label: "Coming later", tone: "slate" }}
+          description="Another AI animator option. It will appear here when it's ready."
+          muted
         />
-        {data.choices.voice === "voicestudio" ? (
-          <ProviderCard
-            id="voicestudio"
-            title="VoiceStudio"
-            view={p.voicestudio!}
-            onSaved={load}
-            keyLabel="API key (only for remote VoiceStudio)"
-            optionalKey
-            hint="Start the VoiceStudio app first. For natural Bangla, create a voice profile from a Bangla recording in VoiceStudio and choose it below."
-            options={[{ key: "baseUrl", label: "Address", placeholder: "http://127.0.0.1:3900" }]}
-            voicePicker="voicestudio"
-            voiceOption="voice"
-          />
-        ) : (
-          <ProviderCard
-            id="elevenlabs"
-            title="ElevenLabs"
-            view={p.elevenlabs!}
-            onSaved={load}
-            keyLabel="ElevenLabs API key"
-            hint="Bangla needs the eleven_v4 or eleven_v3 model."
-            options={[{ key: "model", label: "Model", placeholder: "eleven_v4" }]}
-            voicePicker="elevenlabs"
-            voiceOption="voiceId"
-          />
-        )}
-      </Section>
 
-      <Section title="Transcription & subtitles" description="Whisper listens to the narration and creates timed Bangla subtitles.">
-        <Choice
-          value={data.choices.transcriber}
-          options={[
-            { id: "whisper-local", label: "Whisper", hint: "On this computer (free)" },
-            { id: "openai-whisper", label: "OpenAI Whisper", hint: "Cloud, uses OpenAI key" },
-          ]}
-          onChange={(v) => void choose({ transcriber: v as "whisper-local" | "openai-whisper" })}
-        />
-        {data.choices.transcriber === "whisper-local" ? (
-          <ProviderCard
-            id="whisper"
-            title="Local Whisper"
-            view={p.whisper!}
-            onSaved={load}
-            noKey
-            hint="Install once with: pip install -U openai-whisper. The 'medium' model gives good Bangla on a normal CPU (slower); 'large-v3' is best."
-            options={[
-              { key: "command", label: "Command", placeholder: "whisper" },
-              { key: "model", label: "Model", placeholder: "medium" },
-            ]}
-          />
-        ) : (
-          <p className="text-sm text-muted-foreground">Uses your OpenAI key (model whisper-1, which OpenAI plans to retire on 2027‑02‑26).</p>
-        )}
-      </Section>
-
-      <p className="text-sm text-muted-foreground">
-        Music: no music generator is connected — upload music files in the editor’s Media tab (choose “Music”) and the assistant can place them.
-      </p>
-    </div>
-  );
-}
-
-function Section({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
-  return (
-    <section className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Choice({ value, options, onChange }: { value: string; options: Array<{ id: string; label: string; hint: string }>; onChange: (v: string) => void }) {
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      {options.map((o) => (
-        <button
-          key={o.id}
-          onClick={() => onChange(o.id)}
-          aria-pressed={value === o.id}
-          className={cn("rounded-lg border p-3 text-left transition-colors hover:bg-surface", value === o.id && "border-foreground/40 bg-surface")}
+        <ServiceCard
+          tile="from-violet-500 to-fuchsia-500"
+          icon={<AudioWaveform className="size-5" />}
+          title="ElevenLabs"
+          tag={{ label: "Optional", tone: "violet" }}
+          description="Used only for sound effects and background music. Your voiceover is never sent or changed."
+          status={
+            elevenConnected
+              ? eleven.lastTest
+                ? eleven.lastTest.ok
+                  ? "connected"
+                  : "error"
+                : "unchecked"
+              : "off"
+          }
+          statusText={elevenConnected ? eleven.lastTest?.message : undefined}
+          action={elevenConnected ? "Manage" : "Connect"}
+          onAction={() => setOpen("elevenlabs")}
         >
-          <span className="block text-sm font-medium">{o.label}</span>
-          <span className="block text-xs text-muted-foreground">{o.hint}</span>
-        </button>
-      ))}
+          {!elevenConnected ? (
+            <Note tone="violet">
+              Not connected — that’s fine.{" "}
+              <strong>
+                Claude will create the sound effects and music itself.
+              </strong>{" "}
+              Connect ElevenLabs if you want more realistic sounds (rain,
+              trains, crowds…) and richer music.
+            </Note>
+          ) : null}
+        </ServiceCard>
+      </section>
+
+      {data.skills.length ? (
+        <section className="space-y-3">
+          <SectionTitle title="Built-in skills" description="House rules Claude follows in every video and every change you ask for." />
+          <SkillsList skills={data.skills} />
+        </section>
+      ) : null}
+
+      <section className="space-y-3">
+        <SectionTitle
+          title="Where your files are stored"
+          description="Everything stays on this computer."
+        />
+        <StorageCard storage={data.storage} />
+      </section>
+
+      <ClaudeDialog
+        open={open === "claude"}
+        onOpenChange={(o) => setOpen(o ? "claude" : null)}
+        view={claude}
+        onChanged={load}
+      />
+      <ElevenLabsDialog
+        open={open === "elevenlabs"}
+        onOpenChange={(o) => setOpen(o ? "elevenlabs" : null)}
+        view={eleven}
+        onChanged={load}
+      />
     </div>
   );
 }
 
-function ProviderCard(props: {
-  id: string;
+// ---------------------------------------------------------------------------
+// Building blocks
+// ---------------------------------------------------------------------------
+
+function SectionTitle({
+  title,
+  description,
+}: {
   title: string;
-  view: ProviderView;
-  onSaved: () => Promise<void>;
-  keyLabel?: string;
-  hint?: string;
-  noKey?: boolean;
-  optionalKey?: boolean;
-  options: Array<{ key: string; label: string; placeholder: string }>;
-  voicePicker?: "voicestudio" | "elevenlabs";
-  voiceOption?: string;
+  description: string;
 }) {
-  const { view } = props;
-  const [key, setKey] = useState("");
-  const [opts, setOpts] = useState<Record<string, string>>(() =>
-    Object.fromEntries([...props.options.map((o) => o.key), props.voiceOption ?? ""].filter(Boolean).map((k) => [k, String(view.options[k] ?? "")])),
-  );
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [voices, setVoices] = useState<Array<{ id: string; name: string }> | null>(null);
-
-  async function save(removeKey = false) {
-    setSaving(true);
-    try {
-      await api("/api/settings", {
-        method: "PUT",
-        json: { target: props.id, apiKey: removeKey ? null : key.trim() ? key.trim() : undefined, options: Object.fromEntries(Object.entries(opts).map(([k, v]) => [k, v.trim() || null])) },
-      });
-      setKey("");
-      toast.success(`${props.title} settings saved.`);
-      await props.onSaved();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Couldn't save.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function test() {
-    setTesting(true);
-    try {
-      if (key.trim()) await save();
-      const r = await api<{ ok: boolean; message: string }>("/api/settings/test", { method: "POST", json: { provider: props.id } });
-      if (r.ok) toast.success(r.message);
-      else toast.error(r.message);
-      await props.onSaved();
-    } finally {
-      setTesting(false);
-    }
-  }
-
-  async function loadVoices() {
-    try {
-      const r = await api<{ voices: Array<{ id: string; name: string }> }>(`/api/settings/voices?engine=${props.voicePicker}`);
-      setVoices(r.voices);
-      if (r.voices.length === 0) toast.message("No voices found. Create a voice profile in the service first.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Couldn't load voices.");
-    }
-  }
-
   return (
-    <div className="space-y-4 rounded-xl border p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-medium">{props.title}</h3>
-          {props.hint ? <p className="text-sm text-muted-foreground">{props.hint}</p> : null}
+    <div>
+      <h2 className="text-lg font-semibold">{title}</h2>
+      <p className="text-sm text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+type Status = "connected" | "error" | "unchecked" | "off";
+
+const STATUS: Record<
+  Status,
+  { label: string; className: string; icon: React.ReactNode }
+> = {
+  connected: {
+    label: "Connected",
+    className: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    icon: <CheckCircle2 className="size-3.5" />,
+  },
+  error: {
+    label: "Not working",
+    className: "bg-red-50 text-red-700 ring-red-200",
+    icon: <AlertCircle className="size-3.5" />,
+  },
+  unchecked: {
+    label: "Not checked yet",
+    className: "bg-amber-50 text-amber-800 ring-amber-200",
+    icon: <CircleDashed className="size-3.5" />,
+  },
+  off: {
+    label: "Not connected",
+    className: "bg-slate-100 text-slate-600 ring-slate-200",
+    icon: <CircleDashed className="size-3.5" />,
+  },
+};
+
+const TAG_TONES = {
+  orange: "bg-orange-100 text-orange-800",
+  violet: "bg-violet-100 text-violet-800",
+  slate: "bg-slate-100 text-slate-600",
+};
+
+function StatusPill({ status }: { status: Status }) {
+  const s = STATUS[status];
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
+        s.className,
+      )}
+    >
+      {s.icon}
+      {s.label}
+    </span>
+  );
+}
+
+function ServiceCard(props: {
+  tile: string;
+  icon: React.ReactNode;
+  title: string;
+  tag: { label: string; tone: keyof typeof TAG_TONES };
+  description: string;
+  status?: Status;
+  statusText?: string;
+  action?: string;
+  onAction?: () => void;
+  muted?: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border bg-card p-4 shadow-xs",
+        props.muted && "border-dashed bg-surface shadow-none",
+      )}
+    >
+      <div className="flex items-start gap-4">
+        <span
+          className={cn(
+            "flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm",
+            props.tile,
+            props.muted && "opacity-60",
+          )}
+        >
+          {props.icon}
+        </span>
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3
+              className={cn(
+                "font-semibold",
+                props.muted && "text-muted-foreground",
+              )}
+            >
+              {props.title}
+            </h3>
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                TAG_TONES[props.tag.tone],
+              )}
+            >
+              {props.tag.label}
+            </span>
+            {props.status ? <StatusPill status={props.status} /> : null}
+          </div>
+          <p className="text-sm text-muted-foreground">{props.description}</p>
+          {props.statusText ? (
+            <p
+              className={cn(
+                "text-xs",
+                props.status === "error" ? "text-red-700" : "text-emerald-700",
+              )}
+            >
+              {props.statusText}
+            </p>
+          ) : null}
         </div>
-        {view.lastTest ? (
-          <span className={cn("flex shrink-0 items-center gap-1 text-xs", view.lastTest.ok ? "text-success" : "text-destructive")} title={view.lastTest.message}>
-            {view.lastTest.ok ? <CheckCircle2 className="size-3.5" /> : <XCircle className="size-3.5" />}
-            {view.lastTest.ok ? "Connected" : "Not working"}
-          </span>
+        {props.action ? (
+          <Button
+            variant={props.action === "Connect" ? "default" : "outline"}
+            size="sm"
+            onClick={props.onAction}
+            className="shrink-0"
+          >
+            {props.action} <ChevronRight />
+          </Button>
         ) : null}
       </div>
-      {view.lastTest && !view.lastTest.ok ? <p className="rounded-md bg-destructive-soft p-2 text-sm">{view.lastTest.message}</p> : null}
+      {props.children ? (
+        <div className="mt-3 sm:pl-15">{props.children}</div>
+      ) : null}
+    </div>
+  );
+}
 
-      {!props.noKey ? (
-        <div className="space-y-1.5">
-          <Label htmlFor={`${props.id}-key`}>{props.keyLabel}</Label>
-          <div className="flex gap-2">
+/** A coloured note. Blue "how to" boxes hold instructions. */
+function Note({
+  tone,
+  title,
+  children,
+}: {
+  tone: "blue" | "violet" | "amber";
+  title?: string;
+  children: React.ReactNode;
+}) {
+  const tones = {
+    blue: "border-sky-200 bg-sky-50 text-sky-950 [&_svg.note-icon]:text-sky-600",
+    violet:
+      "border-violet-200 bg-violet-50 text-violet-950 [&_svg.note-icon]:text-violet-600",
+    amber:
+      "border-amber-200 bg-amber-50 text-amber-950 [&_svg.note-icon]:text-amber-600",
+  };
+  return (
+    <div
+      className={cn("flex gap-2.5 rounded-lg border p-3 text-sm", tones[tone])}
+    >
+      <Lightbulb className="note-icon mt-0.5 size-4 shrink-0" aria-hidden />
+      <div className="min-w-0 space-y-1.5">
+        {title ? <p className="font-semibold">{title}</p> : null}
+        <div className="leading-relaxed">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Steps({ steps }: { steps: React.ReactNode[] }) {
+  return (
+    <ol className="space-y-1.5">
+      {steps.map((s, i) => (
+        <li key={i} className="flex gap-2">
+          <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-sky-600 text-[11px] font-semibold text-white">
+            {i + 1}
+          </span>
+          <span>{s}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function Code({ children }: { children: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-white/80 px-1.5 py-0.5 font-mono text-[12px] ring-1 ring-sky-200">
+      {children}
+      <button
+        type="button"
+        className="text-sky-600 hover:text-sky-800"
+        onClick={() =>
+          void navigator.clipboard
+            .writeText(children)
+            .then(() => toast.success("Copied"))
+        }
+        aria-label={`Copy ${children}`}
+      >
+        <Copy className="size-3" />
+      </button>
+    </span>
+  );
+}
+
+function TestResult({ view }: { view: ProviderView }) {
+  if (!view.lastTest) return null;
+  return (
+    <div
+      className={cn(
+        "flex gap-2 rounded-lg border p-3 text-sm",
+        view.lastTest.ok
+          ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+          : "border-red-200 bg-red-50 text-red-900",
+      )}
+    >
+      {view.lastTest.ok ? (
+        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+      ) : (
+        <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-600" />
+      )}
+      {view.lastTest.message}
+    </div>
+  );
+}
+
+async function saveAndTest(
+  target: string,
+  body: { apiKey?: string | null; options?: Record<string, string | null> },
+): Promise<boolean> {
+  await api("/api/settings", { method: "PUT", json: { target, ...body } });
+  const r = await api<{ ok: boolean; message: string }>("/api/settings/test", {
+    method: "POST",
+    json: { provider: target },
+  });
+  if (r.ok) toast.success(r.message);
+  else toast.error(r.message);
+  return r.ok;
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code
+// ---------------------------------------------------------------------------
+
+interface DialogProps {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  view: ProviderView;
+  onChanged: () => Promise<void>;
+}
+
+/** The form lives inside DialogContent, which unmounts on close — so it starts fresh each time. */
+function ClaudeDialog(props: DialogProps) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <ClaudeForm {...props} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ClaudeForm({ onOpenChange, view, onChanged }: DialogProps) {
+  const [mode, setMode] = useState<ClaudeConnection>(view.connection ?? "cli");
+  const [key, setKey] = useState("");
+  const [command, setCommand] = useState(String(view.options.command ?? ""));
+  const [model, setModel] = useState(String(view.options.model ?? ""));
+  const [busy, setBusy] = useState(false);
+
+  async function check() {
+    if (
+      mode === "apiKey" &&
+      !key.trim() &&
+      !view.hasKey &&
+      !view.fromEnvironment
+    )
+      return toast.error("Paste your Anthropic API key first.");
+    setBusy(true);
+    try {
+      const ok = await saveAndTest("anthropic", {
+        apiKey: mode === "apiKey" && key.trim() ? key.trim() : undefined,
+        options: {
+          connection: mode,
+          command: command.trim() || null,
+          model: model.trim() || null,
+        },
+      });
+      await onChanged();
+      if (ok) onOpenChange(false);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Couldn't check the connection.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <span className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-orange-400 to-amber-500 text-white">
+            <Bot className="size-4" />
+          </span>
+          {view.lastTest?.ok ? "Claude Code" : "Connect Claude Code"}
+        </DialogTitle>
+        <DialogDescription>
+          Claude makes your cartoon. Use the Claude app on this computer — no
+          API key needed.
+        </DialogDescription>
+      </DialogHeader>
+
+      <div className="grid grid-cols-2 gap-2">
+        {(
+          [
+            {
+              id: "cli",
+              label: "This computer",
+              hint: "Recommended · uses your Claude plan",
+            },
+            {
+              id: "apiKey",
+              label: "API key",
+              hint: "Billed to your Anthropic account",
+            },
+          ] as const
+        ).map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => setMode(o.id)}
+            aria-pressed={mode === o.id}
+            className={cn(
+              "rounded-lg border p-3 text-left transition-colors hover:bg-surface",
+              mode === o.id &&
+                "border-orange-300 bg-orange-50 ring-1 ring-orange-300",
+            )}
+          >
+            <span className="block text-sm font-medium">{o.label}</span>
+            <span className="block text-xs text-muted-foreground">
+              {o.hint}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {mode === "cli" ? (
+        <Note tone="blue" title="How to connect">
+          <Steps
+            steps={[
+              <>
+                Install Claude Code once:{" "}
+                <Code>npm install -g @anthropic-ai/claude-code</Code>
+              </>,
+              <>
+                Open a terminal, type <Code>claude</Code> and sign in with your
+                Claude account.
+              </>,
+              <>Come back here and press “Check connection”.</>,
+            ]}
+          />
+        </Note>
+      ) : (
+        <div className="space-y-3">
+          <Note tone="blue" title="How to get a key">
+            <Steps
+              steps={[
+                <>
+                  Open the{" "}
+                  <a
+                    href="https://console.anthropic.com/settings/keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium underline"
+                  >
+                    Anthropic Console <ExternalLink className="inline size-3" />
+                  </a>{" "}
+                  and create an API key.
+                </>,
+                <>Paste it below and press “Check connection”.</>,
+              ]}
+            />
+          </Note>
+          <div className="space-y-1.5">
+            <Label htmlFor="claude-key">Anthropic API key</Label>
             <Input
-              id={`${props.id}-key`}
+              id="claude-key"
               type="password"
               autoComplete="off"
               value={key}
               onChange={(e) => setKey(e.target.value)}
-              placeholder={view.fromEnvironment ? "Set by an environment variable" : view.hasKey ? `Saved (${view.keyHint})` : props.optionalKey ? "Not needed on this computer" : "Paste your key"}
+              placeholder={
+                view.fromEnvironment
+                  ? "Set by an environment variable"
+                  : view.hasKey
+                    ? `Saved (${view.keyHint})`
+                    : "sk-ant-…"
+              }
             />
-            {view.hasKey ? (
-              <Button variant="ghost" onClick={() => void save(true)} disabled={saving}>
-                Remove
-              </Button>
+          </div>
+        </div>
+      )}
+
+      <details className="group rounded-lg border px-3 py-2 text-sm">
+        <summary className="cursor-pointer text-muted-foreground select-none">
+          Advanced
+        </summary>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {mode === "cli" ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="claude-command">Claude command</Label>
+              <Input
+                id="claude-command"
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                placeholder="claude"
+              />
+            </div>
+          ) : null}
+          <div className="space-y-1.5">
+            <Label htmlFor="claude-model">Model</Label>
+            <Input
+              id="claude-model"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="Default"
+            />
+          </div>
+        </div>
+      </details>
+
+      <TestResult view={view} />
+
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          Close
+        </Button>
+        <Button onClick={() => void check()} disabled={busy}>
+          {busy ? <Loader2 className="animate-spin" /> : <CheckCircle2 />} Check
+          connection
+        </Button>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ElevenLabs
+// ---------------------------------------------------------------------------
+
+function ElevenLabsDialog(props: DialogProps) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <ElevenLabsForm {...props} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ElevenLabsForm({ onOpenChange, view, onChanged }: DialogProps) {
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const connected = view.hasKey || view.fromEnvironment;
+
+  async function connect() {
+    if (!key.trim() && !connected)
+      return toast.error("Paste your ElevenLabs API key first.");
+    setBusy(true);
+    try {
+      const ok = await saveAndTest("elevenlabs", {
+        apiKey: key.trim() ? key.trim() : undefined,
+      });
+      await onChanged();
+      if (ok) onOpenChange(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't connect.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disconnect() {
+    setBusy(true);
+    try {
+      await api("/api/settings", {
+        method: "PUT",
+        json: { target: "elevenlabs", apiKey: null },
+      });
+      toast.success(
+        "ElevenLabs disconnected. Claude will create sounds and music itself.",
+      );
+      await onChanged();
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Couldn't disconnect.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <span className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white">
+            <AudioWaveform className="size-4" />
+          </span>
+          {connected ? "ElevenLabs" : "Connect ElevenLabs"}
+        </DialogTitle>
+        <DialogDescription>
+          Optional. Used only for sound effects and background music.
+        </DialogDescription>
+      </DialogHeader>
+
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
+          <p className="font-medium text-violet-900">With ElevenLabs</p>
+          <p className="text-xs text-violet-800">
+            Realistic sound effects and generated music.
+          </p>
+        </div>
+        <div className="rounded-lg border bg-surface p-3">
+          <p className="font-medium">Without it</p>
+          <p className="text-xs text-muted-foreground">
+            Claude creates the sounds and music itself.
+          </p>
+        </div>
+      </div>
+
+      {!connected ? (
+        <Note tone="blue" title="How to get a key">
+          <Steps
+            steps={[
+              <>
+                Sign in at{" "}
+                <a
+                  href="https://elevenlabs.io/app/settings/api-keys"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium underline"
+                >
+                  elevenlabs.io → API Keys{" "}
+                  <ExternalLink className="inline size-3" />
+                </a>
+              </>,
+              <>
+                Create a key. It only needs access to{" "}
+                <strong>Sound Effects</strong> and <strong>Music</strong>.
+              </>,
+              <>Paste it below and press “Connect”.</>,
+            ]}
+          />
+        </Note>
+      ) : null}
+
+      <div className="space-y-1.5">
+        <Label htmlFor="eleven-key" className="flex items-center gap-1.5">
+          <KeyRound className="size-3.5 text-muted-foreground" />{" "}
+          {connected ? "Replace the key" : "ElevenLabs API key"}
+        </Label>
+        <Input
+          id="eleven-key"
+          type="password"
+          autoComplete="off"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder={
+            view.fromEnvironment
+              ? "Set by an environment variable"
+              : view.hasKey
+                ? `Saved (${view.keyHint})`
+                : "Paste your key"
+          }
+        />
+        <p className="text-xs text-muted-foreground">
+          Stored encrypted on this computer. It never reaches the browser or the
+          AI agent.
+        </p>
+      </div>
+
+      <TestResult view={view} />
+
+      <div className="flex items-center gap-2">
+        {view.hasKey ? (
+          <Button
+            variant="ghost"
+            className="text-destructive"
+            onClick={() => void disconnect()}
+            disabled={busy}
+          >
+            Disconnect
+          </Button>
+        ) : null}
+        <div className="ml-auto flex gap-2">
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+          <Button
+            onClick={() => void connect()}
+            disabled={busy}
+            className="bg-violet-600 text-white hover:bg-violet-700"
+          >
+            {busy ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}{" "}
+            {connected && !key.trim() ? "Check connection" : "Connect"}
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Storage
+// ---------------------------------------------------------------------------
+
+function StorageCard({ storage }: { storage: SettingsData["storage"] }) {
+  const sep = storage.projects.includes("\\") ? "\\" : "/";
+  const rows = [
+    {
+      icon: <FolderOpen className="size-4" />,
+      tile: "bg-sky-100 text-sky-700",
+      title: "Projects and media files",
+      text: "Each project has its own folder: your uploads (media), scenes, music and sound effects (audio), exported videos (exports) and project.json — the editable timeline.",
+      path: `${storage.projects}${sep}<project>${sep}`,
+      copy: storage.projects,
+    },
+    {
+      icon: <Database className="size-4" />,
+      tile: "bg-emerald-100 text-emerald-700",
+      title: "Project list, file details and settings",
+      text: `${storage.database} (runs in Docker on this computer).`,
+    },
+    {
+      icon: <KeyRound className="size-4" />,
+      tile: "bg-amber-100 text-amber-700",
+      title: "API keys",
+      text: "Saved encrypted in the database. The encryption key is in this folder — keep it private:",
+      path: storage.secrets,
+      copy: storage.secrets,
+    },
+  ];
+  return (
+    <div className="divide-y rounded-xl border bg-card shadow-xs">
+      {rows.map((r) => (
+        <div key={r.title} className="flex gap-3 p-4">
+          <span
+            className={cn(
+              "flex size-8 shrink-0 items-center justify-center rounded-lg",
+              r.tile,
+            )}
+          >
+            {r.icon}
+          </span>
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-sm font-medium">{r.title}</p>
+            <p className="text-sm text-muted-foreground">{r.text}</p>
+            {r.path ? (
+              <div className="flex items-center gap-2">
+                <code
+                  className="min-w-0 truncate rounded-md bg-surface px-2 py-1 font-mono text-xs ring-1 ring-border"
+                  title={r.path}
+                >
+                  {r.path}
+                </code>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Copy path"
+                  onClick={() =>
+                    void navigator.clipboard
+                      .writeText(r.copy!)
+                      .then(() => toast.success("Path copied"))
+                  }
+                >
+                  <Copy />
+                </Button>
+              </div>
             ) : null}
           </div>
         </div>
-      ) : null}
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        {props.options.map((o) => (
-          <div key={o.key} className="space-y-1.5">
-            <Label htmlFor={`${props.id}-${o.key}`}>{o.label}</Label>
-            <Input id={`${props.id}-${o.key}`} value={opts[o.key] ?? ""} placeholder={o.placeholder} onChange={(e) => setOpts((s) => ({ ...s, [o.key]: e.target.value }))} />
-          </div>
-        ))}
-        {props.voicePicker && props.voiceOption ? (
-          <div className="space-y-1.5">
-            <Label>Voice</Label>
-            <div className="flex gap-2">
-              {voices ? (
-                <select
-                  value={opts[props.voiceOption] ?? ""}
-                  onChange={(e) => setOpts((s) => ({ ...s, [props.voiceOption!]: e.target.value }))}
-                  className="h-9 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm"
-                >
-                  <option value="">Default</option>
-                  {voices.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <Input value={opts[props.voiceOption] ?? ""} placeholder="default" onChange={(e) => setOpts((s) => ({ ...s, [props.voiceOption!]: e.target.value }))} />
-              )}
-              <Button variant="outline" onClick={() => void loadVoices()}>
-                List
-              </Button>
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="flex gap-2">
-        <Button onClick={() => void save()} disabled={saving}>
-          {saving ? <Loader2 className="animate-spin" /> : null} Save
-        </Button>
-        <Button variant="outline" onClick={() => void test()} disabled={testing}>
-          {testing ? <Loader2 className="animate-spin" /> : <PlugZap />} Test connection
-        </Button>
-      </div>
+      ))}
     </div>
   );
 }

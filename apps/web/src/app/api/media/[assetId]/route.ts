@@ -11,7 +11,7 @@ export const GET = apiHandler(async (_request: NextRequest, ctx: Context) => {
   const { assetId } = await ctx.params;
   const asset = await getMediaAsset(assetId);
   const { timeline } = await getTimeline(asset.projectId);
-  const usedBy = timeline.clips.filter((c) => c.assetId === assetId).map((c) => ({ clipId: c.id, start: c.start, sceneId: c.sceneId }));
+  const usedBy = timeline.clips.filter((c) => c.src === asset.path).map((c) => ({ clipId: c.id, start: c.start }));
   return Response.json({ asset, usedBy });
 });
 
@@ -27,7 +27,7 @@ export const DELETE = apiHandler(async (_request: NextRequest, ctx: Context) => 
   const asset = await getMediaAsset(assetId);
   if (asset.kind !== "render") {
     const { timeline } = await getTimeline(asset.projectId);
-    const uses = timeline.clips.filter((c) => c.assetId === assetId).length;
+    const uses = timeline.clips.filter((c) => c.src === asset.path).length;
     if (uses > 0) throw new UserFacingError(`This file is used ${uses} time${uses === 1 ? "" : "s"} on the timeline. Remove those clips first.`, "in_use", 409);
   }
   await deleteMediaAsset(assetId);

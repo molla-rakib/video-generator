@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AspectRatioSchema, FpsSchema, ResolutionSchema } from "@studio/shared";
 import { enqueueJob, type Job } from "./repositories/jobs";
 
 /**
@@ -6,22 +7,22 @@ import { enqueueJob, type Job } from "./repositories/jobs";
  * plain-language title shown to the user while it runs.
  */
 export const JOB_INPUTS = {
-  "media.process": z.object({ assetId: z.string(), shotId: z.string().nullable().default(null) }),
-  "story.write": z.object({
-    topic: z.string().min(1),
-    instructions: z.string().default(""),
-    targetMinutes: z.number().min(0.5).max(60).default(5),
-  }),
-  "voice.generate": z.object({ sceneIds: z.array(z.string()).default([]) }),
-  "subtitles.generate": z.object({ clipIds: z.array(z.string()).default([]) }),
-  "storyboard.plan": z.object({ sceneIds: z.array(z.string()).default([]), generateImages: z.boolean().default(true) }),
-  "images.generate": z.object({ sceneIds: z.array(z.string()).default([]), shotIds: z.array(z.string()).default([]) }),
+  "media.process": z.object({ assetId: z.string() }),
+  /** Export one video per aspect ratio. */
   render: z.object({
+    ratios: z.array(AspectRatioSchema).min(1),
+    resolution: ResolutionSchema.default("1080p"),
     format: z.enum(["mp4", "webm"]).default("mp4"),
-    resolution: z.enum(["1080p", "720p"]).default("1080p"),
-    fps: z.union([z.literal(24), z.literal(25), z.literal(30)]).optional(),
+    fps: FpsSchema.optional(),
   }),
-  "assistant.turn": z.object({ messageId: z.string(), text: z.string() }),
+  /** Ask the AI agent to change part of the video. */
+  "agent.revise": z.object({
+    request: z.string().trim().min(2).max(4000),
+    /** Clips the user selected on the timeline. */
+    clipIds: z.array(z.string()).max(200).default([]),
+    /** Time range the user selected (seconds), if any. */
+    range: z.object({ start: z.number().nonnegative(), end: z.number().positive() }).nullable().default(null),
+  }),
 } as const;
 
 export type JobType = keyof typeof JOB_INPUTS;
@@ -29,16 +30,12 @@ export type JobInput<T extends JobType> = z.infer<(typeof JOB_INPUTS)[T]>;
 
 export const JOB_TITLES: Record<JobType, string> = {
   "media.process": "Preparing a file",
-  "story.write": "Writing the script",
-  "voice.generate": "Generating Bangla narration",
-  "subtitles.generate": "Creating subtitles",
-  "storyboard.plan": "Planning the visuals",
-  "images.generate": "Creating pictures",
-  render: "Rendering the documentary",
-  "assistant.turn": "AI assistant is working",
+  render: "Exporting the video",
+  "agent.revise": "Claude is changing your video",
 };
 
-const RETRIES: Partial<Record<JobType, number>> = { render: 1, "assistant.turn": 1, "media.process": 2 };
+// Agent jobs are never retried automatically: each run costs plan usage.
+const RETRIES: Partial<Record<JobType, number>> = { render: 1, "media.process": 2, "agent.revise": 1 };
 
 export async function enqueue<T extends JobType>(
   type: T,

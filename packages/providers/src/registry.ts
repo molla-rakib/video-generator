@@ -1,6 +1,8 @@
 import { getProviderCredentials, getProviderSettingView, recordProviderTest } from "@studio/database";
 import { ClaudeBrain, DEFAULT_CLAUDE_MODEL } from "./anthropic";
+import { ClaudeCliBrain } from "./claude-cli";
 import { DEFAULT_GPT_MODEL, DEFAULT_IMAGE_MODEL, GptBrain, OpenAIImages, OpenAIWhisper } from "./openai";
+import { ElevenLabsSounds } from "./elevenlabs-sounds";
 import { ElevenLabs, VoiceStudio } from "./speech";
 import { ProviderNotConfiguredError, type ImageGenerator, type SpeechEngine, type TextBrain, type Transcriber } from "./types";
 import { LocalWhisper } from "./whisper-local";
@@ -36,8 +38,33 @@ export async function getStudioChoices(): Promise<StudioChoices> {
 
 const str = (v: unknown, fallback: string) => (typeof v === "string" && v.trim() ? v.trim() : fallback);
 
+/**
+ * How Claude is reached: through the Claude Code app on this computer (its own
+ * sign-in, no key needed) or with an Anthropic API key. Until the user picks,
+ * a saved/env key means "apiKey", otherwise the local app.
+ */
+export type ClaudeConnection = "cli" | "apiKey";
+export function claudeConnection(options: Record<string, unknown>, hasKey: boolean): ClaudeConnection {
+  if (options.connection === "cli" || options.connection === "apiKey") return options.connection;
+  return hasKey ? "apiKey" : "cli";
+}
+
+function claudeBrain(c: { apiKey: string | null; options: Record<string, unknown> }): TextBrain | null {
+  const model = str(c.options.model, DEFAULT_CLAUDE_MODEL);
+  if (claudeConnection(c.options, Boolean(c.apiKey)) === "cli") return new ClaudeCliBrain(str(c.options.command, "claude"), model);
+  return c.apiKey ? new ClaudeBrain(c.apiKey, model) : null;
+}
+
 async function creds(id: ProviderId) {
   return getProviderCredentials(id, ENV_KEYS[id]);
+}
+
+/** How to launch Claude Code as the studio's agent, from the user's Settings. */
+export async function getClaudeAgentConfig(): Promise<{ command: string; model: string; apiKey: string | null }> {
+  const c = await creds("anthropic");
+  const viaKey = claudeConnection(c.options, Boolean(c.apiKey)) === "apiKey";
+  if (viaKey && !c.apiKey) throw new ProviderNotConfiguredError("Claude", "Enter an Anthropic API key in Settings, or switch Claude to the app on this computer.");
+  return { command: str(c.options.command, "claude"), model: str(c.options.model, DEFAULT_CLAUDE_MODEL), apiKey: viaKey ? c.apiKey : null };
 }
 
 /** The AI brain (Claude or GPT) for story, planning and the assistant. */
@@ -46,12 +73,13 @@ export async function getBrain(): Promise<TextBrain> {
   const [anthropic, openai] = await Promise.all([creds("anthropic"), creds("openai")]);
   const order: Array<"anthropic" | "openai"> = choices.brain ? [choices.brain] : ["anthropic", "openai"];
   for (const id of order) {
-    if (id === "anthropic" && anthropic.apiKey) return new ClaudeBrain(anthropic.apiKey, str(anthropic.options.model, DEFAULT_CLAUDE_MODEL));
+    const claude = id === "anthropic" ? claudeBrain(anthropic) : null;
+    if (claude) return claude;
     if (id === "openai" && openai.apiKey) return new GptBrain(openai.apiKey, str(openai.options.model, DEFAULT_GPT_MODEL));
   }
   throw new ProviderNotConfiguredError(
     choices.brain === "openai" ? "GPT" : choices.brain === "anthropic" ? "Claude" : "An AI brain (Claude or GPT)",
-    "Add a Claude or OpenAI API key in Settings.",
+    choices.brain === "anthropic" ? "Enter an Anthropic API key in Settings, or switch Claude to the app on this computer." : "Connect Claude or OpenAI in Settings.",
   );
 }
 
@@ -94,17 +122,19 @@ export async function testProvider(id: ProviderId): Promise<{ ok: boolean; messa
     const c = await creds(id);
     let message: string;
     switch (id) {
-      case "anthropic":
-        if (!c.apiKey) throw new ProviderNotConfiguredError("Claude", "Enter an API key first.");
-        message = await new ClaudeBrain(c.apiKey, str(c.options.model, DEFAULT_CLAUDE_MODEL)).test();
+      case "anthropic": {
+        const brain = claudeBrain(c);
+        if (!brain) throw new ProviderNotConfiguredError("Claude", "Enter an API key first, or switch to the Claude app on this computer.");
+        message = await brain.test();
         break;
+      }
       case "openai":
         if (!c.apiKey) throw new ProviderNotConfiguredError("OpenAI", "Enter an API key first.");
         message = await new GptBrain(c.apiKey, str(c.options.model, DEFAULT_GPT_MODEL)).test();
         break;
       case "elevenlabs":
         if (!c.apiKey) throw new ProviderNotConfiguredError("ElevenLabs", "Enter an API key first.");
-        message = await new ElevenLabs(c.apiKey, null).test();
+        message = await new ElevenLabsSounds(c.apiKey).test();
         break;
       case "voicestudio":
         message = await new VoiceStudio(str(c.options.baseUrl, "http://127.0.0.1:3900"), "default", c.apiKey).test();
@@ -142,11 +172,20 @@ export async function agentStatuses(): Promise<AgentStatus[]> {
     getProviderSettingView("whisper"),
   ]);
   const anthropicKey = anthropic.hasKey || Boolean(process.env.ANTHROPIC_API_KEY);
+  const claudeViaCli = claudeConnection(anthropic.options, anthropicKey) === "cli";
+  // The local app needs no key; treat it as ready unless its last test failed.
+  const claudeReady = claudeViaCli ? anthropic.lastTest?.ok !== false : anthropicKey;
   const openaiKey = openai.hasKey || Boolean(process.env.OPENAI_API_KEY);
-  const brainId = choices.brain ?? (anthropicKey ? "anthropic" : openaiKey ? "openai" : null);
-  const brainReady = brainId === "anthropic" ? anthropicKey : brainId === "openai" ? openaiKey : false;
-  const brainName = brainId === "anthropic" ? "Claude" : brainId === "openai" ? "GPT" : "Not connected";
-  const brainNote = brainReady ? "" : "Add a Claude or OpenAI API key in Settings.";
+  const brainId = choices.brain ?? (claudeReady ? "anthropic" : openaiKey ? "openai" : null);
+  const brainReady = brainId === "anthropic" ? claudeReady : brainId === "openai" ? openaiKey : false;
+  const brainName = brainId === "anthropic" ? (claudeViaCli ? "Claude (app on this computer)" : "Claude") : brainId === "openai" ? "GPT" : "Not connected";
+  const brainNote = brainReady
+    ? brainId === "anthropic" && claudeViaCli && !anthropic.lastTest
+      ? "Uses the Claude app on this computer — press Test connection in Settings to check it's signed in."
+      : ""
+    : brainId === "anthropic" && claudeViaCli
+      ? "The Claude app on this computer didn't respond last time — check it's installed and signed in, then test again."
+      : "Connect Claude or OpenAI in Settings.";
   const voiceReady = choices.voice === "elevenlabs" ? el.hasKey || Boolean(process.env.ELEVENLABS_API_KEY) : vs.lastTest?.ok !== false;
   return [
     { id: "story", name: "Story Agent", description: "Researches the topic and writes the Bangla script, scene by scene.", engine: brainName, ready: brainReady, note: brainNote },

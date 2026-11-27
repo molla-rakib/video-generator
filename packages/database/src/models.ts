@@ -1,5 +1,5 @@
 import mongoose, { Schema, type Model, type Types } from "mongoose";
-import { ASPECT_RATIOS, RESOLUTIONS, VISUAL_STYLES, type AspectRatio, type Resolution, type VisualStyle } from "@studio/shared";
+import { ASPECT_RATIOS, type AspectRatio } from "@studio/shared";
 
 /**
  * MongoDB collections. Media bytes never live here — only storage keys and
@@ -11,18 +11,19 @@ function defineModel<T>(name: string, schema: Schema<T>): Model<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Projects
+// Projects (an index for lists; the video itself lives in project.json)
 // ---------------------------------------------------------------------------
 
 export interface ProjectDoc {
   _id: Types.ObjectId;
   title: string;
-  topic: string;
+  /** Captions/voice language (BCP-47). */
   language: string;
+  /** The shape being edited — mirrored from project.json for project cards. */
   aspectRatio: AspectRatio;
-  resolution: Resolution;
-  fps: 24 | 25 | 30;
-  visualStyle: VisualStyle;
+  fps: 24 | 25 | 30 | 60;
+  /** Style preset chosen at creation, if any. */
+  style: string | null;
   /** Storage key of a representative image, for project lists. */
   thumbnailKey: string | null;
   lastActivity: string;
@@ -33,12 +34,10 @@ export interface ProjectDoc {
 const ProjectSchema = new Schema<ProjectDoc>(
   {
     title: { type: String, required: true, trim: true, maxlength: 160 },
-    topic: { type: String, default: "", maxlength: 20000 },
     language: { type: String, required: true, default: "bn" },
     aspectRatio: { type: String, enum: ASPECT_RATIOS, required: true },
-    resolution: { type: String, enum: RESOLUTIONS, required: true },
-    fps: { type: Number, enum: [24, 25, 30], required: true },
-    visualStyle: { type: String, enum: VISUAL_STYLES, required: true },
+    fps: { type: Number, enum: [24, 25, 30, 60], required: true },
+    style: { type: String, default: null },
     thumbnailKey: { type: String, default: null },
     lastActivity: { type: String, default: "" },
   },
@@ -46,78 +45,6 @@ const ProjectSchema = new Schema<ProjectDoc>(
 );
 ProjectSchema.index({ updatedAt: -1 });
 export const ProjectModel = defineModel<ProjectDoc>("Project", ProjectSchema);
-
-// ---------------------------------------------------------------------------
-// Timeline (current editing state, one per project) + snapshots
-// ---------------------------------------------------------------------------
-
-export interface TimelineDoc {
-  _id: Types.ObjectId;
-  projectId: Types.ObjectId;
-  /** Increments on every save — used for optimistic concurrency. */
-  revision: number;
-  data: unknown;
-  updatedBy: "user" | "assistant" | "system";
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-const TimelineSchema = new Schema<TimelineDoc>(
-  {
-    projectId: { type: Schema.Types.ObjectId, ref: "Project", required: true },
-    revision: { type: Number, required: true, default: 1 },
-    data: { type: Schema.Types.Mixed, required: true },
-    updatedBy: { type: String, enum: ["user", "assistant", "system"], default: "user" },
-  },
-  { timestamps: true, collection: "timelines", minimize: false },
-);
-TimelineSchema.index({ projectId: 1 }, { unique: true });
-export const TimelineModel = defineModel<TimelineDoc>("Timeline", TimelineSchema);
-
-export interface TimelineSnapshotDoc {
-  _id: Types.ObjectId;
-  projectId: Types.ObjectId;
-  revision: number;
-  reason: string;
-  data: unknown;
-  createdAt: Date;
-}
-
-const TimelineSnapshotSchema = new Schema<TimelineSnapshotDoc>(
-  {
-    projectId: { type: Schema.Types.ObjectId, ref: "Project", required: true },
-    revision: { type: Number, required: true },
-    reason: { type: String, required: true },
-    data: { type: Schema.Types.Mixed, required: true },
-  },
-  { timestamps: { createdAt: true, updatedAt: false }, collection: "timelinesnapshots", minimize: false },
-);
-TimelineSnapshotSchema.index({ projectId: 1, createdAt: -1 });
-export const TimelineSnapshotModel = defineModel<TimelineSnapshotDoc>("TimelineSnapshot", TimelineSnapshotSchema);
-
-// ---------------------------------------------------------------------------
-// Script (story, scenes, narration, visual plan)
-// ---------------------------------------------------------------------------
-
-export interface ScriptDoc {
-  _id: Types.ObjectId;
-  projectId: Types.ObjectId;
-  revision: number;
-  data: unknown;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-const ScriptDocSchema = new Schema<ScriptDoc>(
-  {
-    projectId: { type: Schema.Types.ObjectId, ref: "Project", required: true },
-    revision: { type: Number, required: true, default: 1 },
-    data: { type: Schema.Types.Mixed, required: true },
-  },
-  { timestamps: true, collection: "scripts", minimize: false },
-);
-ScriptDocSchema.index({ projectId: 1 }, { unique: true });
-export const ScriptModel = defineModel<ScriptDoc>("Script", ScriptDocSchema);
 
 // ---------------------------------------------------------------------------
 // Media assets
@@ -135,7 +62,7 @@ export interface MediaAssetDoc {
   projectId: Types.ObjectId;
   kind: MediaKind;
   origin: MediaOrigin;
-  /** narration | music | sfx | ambience | visual | subtitle-source … */
+  /** voice | music | sfx | ambience | visual … */
   role: string | null;
   name: string;
   storageKey: string;
@@ -156,7 +83,6 @@ export interface MediaAssetDoc {
   provider: string | null;
   prompt: string | null;
   generationSettings: Record<string, unknown>;
-  sceneId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -183,7 +109,6 @@ const MediaAssetSchema = new Schema<MediaAssetDoc>(
     provider: { type: String, default: null },
     prompt: { type: String, default: null },
     generationSettings: { type: Schema.Types.Mixed, default: {} },
-    sceneId: { type: String, default: null },
   },
   { timestamps: true, collection: "mediaassets", minimize: false },
 );
@@ -191,38 +116,6 @@ MediaAssetSchema.index({ projectId: 1, kind: 1, createdAt: -1 });
 MediaAssetSchema.index({ storageKey: 1 }, { unique: true });
 MediaAssetSchema.index({ name: "text" });
 export const MediaAssetModel = defineModel<MediaAssetDoc>("MediaAsset", MediaAssetSchema);
-
-// ---------------------------------------------------------------------------
-// AI assistant conversation
-// ---------------------------------------------------------------------------
-
-export interface ChatMessageDoc {
-  _id: Types.ObjectId;
-  projectId: Types.ObjectId;
-  role: "user" | "assistant";
-  text: string;
-  /** Actions the assistant performed in this turn (shown as chips). */
-  actions: Array<{ tool: string; summary: string; ok: boolean }>;
-  /** The assistant job that answered (for user messages) or produced it. */
-  jobId: Types.ObjectId | null;
-  createdAt: Date;
-}
-
-const ChatMessageSchema = new Schema<ChatMessageDoc>(
-  {
-    projectId: { type: Schema.Types.ObjectId, ref: "Project", required: true },
-    role: { type: String, enum: ["user", "assistant"], required: true },
-    text: { type: String, default: "" },
-    actions: {
-      type: [new Schema<{ tool: string; summary: string; ok: boolean }>({ tool: String, summary: String, ok: Boolean }, { _id: false })],
-      default: [],
-    },
-    jobId: { type: Schema.Types.ObjectId, default: null },
-  },
-  { timestamps: { createdAt: true, updatedAt: false }, collection: "chatmessages" },
-);
-ChatMessageSchema.index({ projectId: 1, createdAt: 1 });
-export const ChatMessageModel = defineModel<ChatMessageDoc>("ChatMessage", ChatMessageSchema);
 
 // ---------------------------------------------------------------------------
 // Provider settings (API keys encrypted at rest)

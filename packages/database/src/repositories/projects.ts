@@ -1,51 +1,41 @@
 import { z } from "zod";
-import {
-  AspectRatioSchema,
-  FpsSchema,
-  NotFoundError,
-  ResolutionSchema,
-  VisualStyleSchema,
-  dimensionsFor,
-} from "@studio/shared";
-import { createTimeline, emptyScript } from "@studio/timeline";
+import { AspectRatioSchema, FpsSchema, NotFoundError } from "@studio/shared";
+import { createTimeline, type Timeline } from "@studio/timeline";
 import { connectDatabase } from "../connection";
 import { toObjectId } from "../ids";
-import {
-  ChatMessageModel,
-  GenerationJobModel,
-  MediaAssetModel,
-  ProjectModel,
-  ScriptModel,
-  TimelineModel,
-  TimelineSnapshotModel,
-  type ProjectDoc,
-} from "../models";
+import { GenerationJobModel, MediaAssetModel, ProjectModel, type ProjectDoc } from "../models";
+import { createTimelineFile, projectFolder } from "./project-file";
 
 export const CreateProjectInputSchema = z.object({
-  title: z.string().trim().min(1, "Give your documentary a title.").max(160),
-  topic: z.string().trim().max(20000).default(""),
+  title: z.string().trim().min(1, "Give your video a name.").max(160),
   language: z.string().trim().min(2).max(16).default("bn"),
-  aspectRatio: AspectRatioSchema.default("16:9"),
-  resolution: ResolutionSchema.default("1080p"),
+  aspectRatio: AspectRatioSchema.default("9:16"),
+  /** Extra shapes to export besides the one being edited. */
+  ratios: z.array(AspectRatioSchema).default([]),
   fps: FpsSchema.default(30),
-  visualStyle: VisualStyleSchema.default("documentary"),
+  style: z.string().trim().max(80).nullable().default(null),
 });
 export type CreateProjectInput = z.input<typeof CreateProjectInputSchema>;
 
-export const UpdateProjectInputSchema = CreateProjectInputSchema.partial().strict();
+export const UpdateProjectInputSchema = z
+  .object({
+    title: CreateProjectInputSchema.shape.title,
+    language: CreateProjectInputSchema.shape.language,
+    aspectRatio: AspectRatioSchema,
+    fps: FpsSchema,
+    style: z.string().trim().max(80).nullable(),
+  })
+  .partial()
+  .strict();
 export type UpdateProjectInput = z.input<typeof UpdateProjectInputSchema>;
 
 export interface Project {
   id: string;
   title: string;
-  topic: string;
   language: string;
   aspectRatio: ProjectDoc["aspectRatio"];
-  resolution: ProjectDoc["resolution"];
   fps: ProjectDoc["fps"];
-  visualStyle: ProjectDoc["visualStyle"];
-  width: number;
-  height: number;
+  style: string | null;
   thumbnailKey: string | null;
   lastActivity: string;
   createdAt: string;
@@ -53,18 +43,14 @@ export interface Project {
 }
 
 function toProject(doc: ProjectDoc): Project {
-  const { width, height } = dimensionsFor(doc.aspectRatio, doc.resolution);
   return {
     id: String(doc._id),
     title: doc.title,
-    topic: doc.topic,
-    language: doc.language,
-    aspectRatio: doc.aspectRatio,
-    resolution: doc.resolution,
-    fps: doc.fps,
-    visualStyle: doc.visualStyle,
-    width,
-    height,
+    language: doc.language ?? "bn",
+    // Older projects may hold values from before the project.json model.
+    aspectRatio: AspectRatioSchema.catch("16:9").parse(doc.aspectRatio),
+    fps: FpsSchema.catch(30).parse(doc.fps),
+    style: doc.style ?? null,
     thumbnailKey: doc.thumbnailKey,
     lastActivity: doc.lastActivity,
     createdAt: doc.createdAt.toISOString(),
@@ -85,47 +71,44 @@ export async function getProject(id: string): Promise<Project> {
   return toProject(doc);
 }
 
-/** Create a project with an empty timeline and script. */
-export async function createProject(input: CreateProjectInput): Promise<Project> {
+/**
+ * Create a project: an index entry in the database and a project folder
+ * with an empty `project.json` (or the one given, e.g. a sample project).
+ */
+export async function createProject(input: CreateProjectInput, initial?: (projectId: string) => Promise<Timeline> | Timeline): Promise<Project> {
   const data = CreateProjectInputSchema.parse(input);
   await connectDatabase();
-  const project = await ProjectModel.create({ ...data, lastActivity: "Project created" });
+  const project = await ProjectModel.create({
+    title: data.title,
+    language: data.language,
+    aspectRatio: data.aspectRatio,
+    fps: data.fps,
+    style: data.style,
+    lastActivity: "Project created",
+  });
   try {
-    const { width, height } = dimensionsFor(data.aspectRatio, data.resolution);
-    await TimelineModel.create({ projectId: project._id, revision: 1, data: createTimeline({ fps: data.fps, width, height }), updatedBy: "system" });
-    await ScriptModel.create({ projectId: project._id, revision: 1, data: { ...emptyScript(data.language), title: data.title } });
+    const id = String(project._id);
+    const timeline = initial
+      ? await initial(id)
+      : createTimeline({ fps: data.fps, ratio: data.aspectRatio, ratios: [data.aspectRatio, ...data.ratios.filter((r) => r !== data.aspectRatio)], style: data.style });
+    await createTimelineFile(id, timeline);
   } catch (error) {
-    await Promise.allSettled([
-      ProjectModel.deleteOne({ _id: project._id }),
-      TimelineModel.deleteMany({ projectId: project._id }),
-      ScriptModel.deleteMany({ projectId: project._id }),
-    ]);
+    await ProjectModel.deleteOne({ _id: project._id }).catch(() => {});
     throw error;
   }
   return toProject(project.toObject());
 }
 
-/** Update settings. Format changes are applied to the timeline canvas too. */
+/** Update the project's index entry (title, language…). */
 export async function updateProject(id: string, input: UpdateProjectInput): Promise<Project> {
   const patch = UpdateProjectInputSchema.parse(input);
-  const projectId = toObjectId(id, "project");
   await connectDatabase();
-  const doc = await ProjectModel.findByIdAndUpdate(projectId, { $set: patch }, { returnDocument: "after", runValidators: true }).lean<ProjectDoc>();
+  const doc = await ProjectModel.findByIdAndUpdate(toObjectId(id, "project"), { $set: patch }, { returnDocument: "after", runValidators: true }).lean<ProjectDoc>();
   if (!doc) throw new NotFoundError("project");
-  if (patch.aspectRatio || patch.resolution || patch.fps) {
-    const { width, height } = dimensionsFor(doc.aspectRatio, doc.resolution);
-    const timeline = await TimelineModel.findOne({ projectId }).lean();
-    if (timeline) {
-      await TimelineModel.updateOne(
-        { projectId },
-        { $set: { data: { ...(timeline.data as object), width, height, fps: doc.fps }, updatedBy: "system" }, $inc: { revision: 1 } },
-      );
-    }
-  }
   return toProject(doc);
 }
 
-export async function touchProject(id: string, activity: string, extra: { thumbnailKey?: string } = {}): Promise<void> {
+export async function touchProject(id: string, activity: string, extra: { thumbnailKey?: string; aspectRatio?: ProjectDoc["aspectRatio"] } = {}): Promise<void> {
   await connectDatabase();
   await ProjectModel.updateOne({ _id: toObjectId(id, "project") }, { $set: { lastActivity: activity, ...extra } });
 }
@@ -136,14 +119,7 @@ export async function deleteProject(id: string): Promise<{ storagePrefix: string
   await connectDatabase();
   if (!(await ProjectModel.exists({ _id: projectId }))) throw new NotFoundError("project");
   await GenerationJobModel.updateMany({ projectId, status: { $in: ["pending", "running"] } }, { $set: { cancelRequested: true, status: "cancelled" } });
-  await Promise.all([
-    TimelineModel.deleteMany({ projectId }),
-    TimelineSnapshotModel.deleteMany({ projectId }),
-    ScriptModel.deleteMany({ projectId }),
-    MediaAssetModel.deleteMany({ projectId }),
-    ChatMessageModel.deleteMany({ projectId }),
-    GenerationJobModel.deleteMany({ projectId }),
-  ]);
+  await Promise.all([MediaAssetModel.deleteMany({ projectId }), GenerationJobModel.deleteMany({ projectId })]);
   await ProjectModel.deleteOne({ _id: projectId });
-  return { storagePrefix: `projects/${id}` };
+  return { storagePrefix: projectFolder(id) };
 }

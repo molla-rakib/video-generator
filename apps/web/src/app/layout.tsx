@@ -10,7 +10,7 @@ const bengali = Noto_Sans_Bengali({ subsets: ["bengali"], variable: "--font-beng
 
 export const metadata: Metadata = {
   title: { default: "Documentary Studio", template: "%s · Documentary Studio" },
-  description: "Create Bangla documentaries — from an idea to a finished film.",
+  description: "Turn a voiceover into an animated cartoon, then edit and export it in any shape.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

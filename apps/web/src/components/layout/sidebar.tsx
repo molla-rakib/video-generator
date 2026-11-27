@@ -2,16 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, Clapperboard, FolderOpen, Images, Plus, Settings } from "lucide-react";
+import { Clapperboard, FolderOpen, Images, Plus, Settings } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/", label: "Projects", icon: FolderOpen, match: (p: string) => p === "/" },
-  { href: "/projects/new", label: "Create Documentary", icon: Plus, match: (p: string) => p === "/projects/new" },
+  { href: "/projects/new", label: "New video", icon: Plus, match: (p: string) => p === "/projects/new" },
   { href: "/media", label: "Media Library", icon: Images, match: (p: string) => p.startsWith("/media") },
-  { href: "/agents", label: "AI Agents", icon: Bot, match: (p: string) => p.startsWith("/agents") },
-  { href: "/settings", label: "Settings", icon: Settings, match: (p: string) => p.startsWith("/settings") },
+  { href: "/settings", label: "Settings", icon: Settings, match: (p: string) => p.startsWith("/settings") || p.startsWith("/agents") },
 ];
 
 /** Left navigation. Collapses to icons inside the editor to give the workspace room. */
@@ -21,7 +20,7 @@ export function Sidebar() {
   return (
     <aside className={cn("flex shrink-0 flex-col border-r bg-surface", compact ? "w-14" : "w-56")}>
       <Link href="/" className={cn("flex h-14 items-center gap-2 border-b font-semibold tracking-tight", compact ? "justify-center" : "px-4")}>
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-violet-500 to-orange-400 text-white shadow-sm">
           <Clapperboard className="size-4" aria-hidden />
         </span>
         {compact ? <span className="sr-only">Documentary Studio</span> : <span className="truncate">Documentary Studio</span>}
