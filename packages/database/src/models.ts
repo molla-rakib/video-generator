@@ -152,7 +152,7 @@ export const ProviderSettingModel = defineModel<ProviderSettingDoc>("ProviderSet
 // Jobs (persistent queue for generation, processing and rendering)
 // ---------------------------------------------------------------------------
 
-export const JOB_STATUSES = ["pending", "running", "completed", "failed", "cancelled"] as const;
+export const JOB_STATUSES = ["pending", "running", "paused", "completed", "failed", "cancelled"] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
 export interface JobError {
@@ -179,6 +179,8 @@ export interface GenerationJobDoc {
   lockedBy: string | null;
   heartbeatAt: Date | null;
   cancelRequested: boolean;
+  /** The user asked a running job to pause; the worker stops it and marks it "paused". */
+  pauseRequested: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -203,6 +205,7 @@ const GenerationJobSchema = new Schema<GenerationJobDoc>(
     lockedBy: { type: String, default: null },
     heartbeatAt: { type: Date, default: null },
     cancelRequested: { type: Boolean, default: false },
+    pauseRequested: { type: Boolean, default: false },
   },
   { timestamps: true, collection: "generationjobs", minimize: false },
 );

@@ -4,7 +4,9 @@ import {
   completeJob,
   connectDatabase,
   failJob,
+  isPauseRequested,
   markCancelled,
+  markPaused,
   parseJobInput,
   recoverInterruptedJobs,
   recoverStaleJobs,
@@ -71,8 +73,13 @@ async function main() {
       console.log(`[worker] ✓ ${job.type} ${job.id} in ${((Date.now() - started) / 1000).toFixed(1)}s`);
     } catch (error) {
       if (error instanceof JobCancelledError) {
-        await markCancelled(job.id);
-        console.log(`[worker] ■ ${job.type} ${job.id} cancelled`);
+        if (await isPauseRequested(job.id).catch(() => false)) {
+          await markPaused(job.id);
+          console.log(`[worker] ‖ ${job.type} ${job.id} paused`);
+        } else {
+          await markCancelled(job.id);
+          console.log(`[worker] ■ ${job.type} ${job.id} cancelled`);
+        }
         return;
       }
       const userMessage =

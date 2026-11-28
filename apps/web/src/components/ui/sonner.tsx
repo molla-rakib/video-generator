@@ -24,12 +24,25 @@ const Toaster = ({ ...props }: ToasterProps) => {
       }}
       style={
         {
-          "--normal-bg": "var(--popover)",
+          "--normal-bg": "color-mix(in oklab, var(--popover) 95%, transparent)",
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
-          "--border-radius": "var(--radius)",
+          "--border-radius": "calc(var(--radius) + 4px)",
+          "--width": "320px",
         } as React.CSSProperties
       }
+      // Compact cards: short title, at most a few lines of detail.
+      toastOptions={{
+        classNames: {
+          toast: "items-start! gap-2.5! px-3.5! py-3! shadow-xl! backdrop-blur",
+          icon: "mt-px! size-4!",
+          content: "min-w-0 gap-0.5!",
+          title: "line-clamp-2 text-[13px]! leading-snug! font-medium!",
+          description: "line-clamp-3 text-xs! leading-snug! text-muted-foreground!",
+          actionButton: "h-6! self-center rounded-md! bg-brand! px-2.5! text-xs! font-medium! text-brand-foreground!",
+          cancelButton: "h-6! self-center rounded-md! px-2.5! text-xs!",
+        },
+      }}
       {...props}
     />
   )

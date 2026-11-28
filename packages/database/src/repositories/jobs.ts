@@ -30,6 +30,8 @@ export interface Job {
   error: JobError | null;
   attempts: number;
   maxAttempts: number;
+  /** A pause was asked for and the worker is stopping the job. */
+  pauseRequested: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -48,6 +50,7 @@ export function toJob(doc: GenerationJobDoc): Job {
     error: doc.error,
     attempts: doc.attempts,
     maxAttempts: doc.maxAttempts,
+    pauseRequested: Boolean(doc.pauseRequested),
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   };
@@ -94,7 +97,7 @@ export async function claimNextJob(workerId: string, types?: string[]): Promise<
  */
 export async function reportProgress(jobId: string, workerId: string, progress: number, message = ""): Promise<boolean> {
   const res = await GenerationJobModel.updateOne(
-    { _id: jobId, lockedBy: workerId, status: "running", cancelRequested: false },
+    { _id: jobId, lockedBy: workerId, status: "running", cancelRequested: false, pauseRequested: { $ne: true } },
     { $set: { progress: Math.min(1, Math.max(0, progress)), progressMessage: message, heartbeatAt: new Date() } },
   );
   return res.matchedCount === 1;
@@ -111,6 +114,11 @@ export async function completeJob(jobId: string, workerId: string, result: Recor
 export async function failJob(jobId: string, workerId: string, error: JobError): Promise<JobStatus> {
   const doc = await GenerationJobModel.findOne({ _id: jobId, lockedBy: workerId, status: "running" }).lean<GenerationJobDoc>();
   if (!doc) return "cancelled";
+  if (doc.pauseRequested && !doc.cancelRequested) {
+    // Stopping for a pause can surface as an error; it's still a pause.
+    await markPaused(jobId);
+    return "paused";
+  }
   const willRetry = error.retryable && doc.attempts < doc.maxAttempts && !doc.cancelRequested;
   const backoffMs = Math.min(5 * 60_000, 2 ** doc.attempts * 5_000);
   const status: JobStatus = willRetry ? "pending" : "failed";
@@ -143,7 +151,7 @@ export async function retryJob(jobId: string): Promise<Job | null> {
 export async function cancelJob(jobId: string): Promise<void> {
   await connectDatabase();
   const id = toObjectId(jobId, "job");
-  await GenerationJobModel.updateOne({ _id: id, status: "pending" }, { $set: { status: "cancelled", cancelRequested: true } });
+  await GenerationJobModel.updateOne({ _id: id, status: { $in: ["pending", "paused"] } }, { $set: { status: "cancelled", cancelRequested: true, pauseRequested: false } });
   // A running job is asked to stop; the worker sees it on its next progress report.
   await GenerationJobModel.updateOne({ _id: id, status: "running" }, { $set: { cancelRequested: true } });
 }
@@ -154,6 +162,56 @@ export async function markCancelled(jobId: string): Promise<void> {
     { _id: jobId, status: "running" },
     { $set: { status: "cancelled", lockedBy: null, heartbeatAt: null } },
   );
+}
+
+/**
+ * Pause a resumable job. A waiting one is paused straight away; a running one
+ * is asked to stop at once (its progress is kept on disk) and the worker marks
+ * it "paused". Returns false when the job can't be paused.
+ */
+export async function pauseJob(jobId: string): Promise<boolean> {
+  await connectDatabase();
+  const id = toObjectId(jobId, "job");
+  const resumable = { _id: id, type: { $in: RESUMABLE_JOB_TYPES }, cancelRequested: false };
+  const waiting = await GenerationJobModel.updateOne({ ...resumable, status: "pending" }, { $set: { status: "paused", progressMessage: "Paused" } });
+  if (waiting.matchedCount) return true;
+  const running = await GenerationJobModel.updateOne({ ...resumable, status: "running" }, { $set: { pauseRequested: true, progressMessage: "Pausing…" } });
+  return running.matchedCount === 1 || Boolean(await GenerationJobModel.exists({ _id: id, status: "paused" }));
+}
+
+/** Called by the worker after it stops a job because a pause was requested. */
+export async function markPaused(jobId: string): Promise<void> {
+  await GenerationJobModel.updateOne(
+    { _id: jobId, status: "running" },
+    { $set: { status: "paused", pauseRequested: false, lockedBy: null, heartbeatAt: null, progressMessage: "Paused" } },
+  );
+}
+
+/**
+ * Put a paused job back in the queue. It continues from its saved progress —
+ * never "start over" again, even if that's how it was first started.
+ */
+export async function resumeJob(jobId: string): Promise<Job | null> {
+  await connectDatabase();
+  const id = toObjectId(jobId, "job");
+  const current = await GenerationJobModel.findOne({ _id: id, status: "paused" }).lean<GenerationJobDoc>();
+  if (!current) return null;
+  const doc = await GenerationJobModel.findOneAndUpdate(
+    { _id: id, status: "paused" },
+    {
+      $set: {
+        status: "pending",
+        pauseRequested: false,
+        error: null,
+        runAfter: new Date(),
+        progressMessage: "Resuming…",
+        "input.mode": "continue",
+        maxAttempts: Math.max(current.maxAttempts, current.attempts + 1),
+      },
+    },
+    { returnDocument: "after" },
+  ).lean<GenerationJobDoc>();
+  return doc ? toJob(doc) : null;
 }
 
 /**
@@ -175,6 +233,14 @@ const MAX_CONTINUATIONS = 10;
 
 /** Put an interrupted job back in the queue to continue (it may run once more). */
 async function continueLater(doc: GenerationJobDoc, message: string): Promise<void> {
+  if (doc.pauseRequested) {
+    // It was being paused when it was cut off: leave it paused.
+    await GenerationJobModel.updateOne(
+      { _id: doc._id, status: "running" },
+      { $set: { status: "paused", pauseRequested: false, lockedBy: null, heartbeatAt: null, progressMessage: "Paused" } },
+    );
+    return;
+  }
   await GenerationJobModel.updateOne(
     { _id: doc._id, status: "running" },
     {
@@ -255,7 +321,7 @@ export async function listRecentJobs(projectId: string, sinceMs = 10 * 60_000): 
   await connectDatabase();
   const docs = await GenerationJobModel.find({
     projectId: toObjectId(projectId, "project"),
-    $or: [{ status: { $in: ["pending", "running"] } }, { updatedAt: { $gte: new Date(Date.now() - sinceMs) } }],
+    $or: [{ status: { $in: ["pending", "running", "paused"] } }, { updatedAt: { $gte: new Date(Date.now() - sinceMs) } }],
   })
     .sort({ createdAt: -1 })
     .limit(50)
@@ -263,7 +329,14 @@ export async function listRecentJobs(projectId: string, sinceMs = 10 * 60_000): 
   return docs.map(toJob);
 }
 
+/** True when the worker should stop this job now: it was cancelled or paused. */
 export async function isCancelRequested(jobId: string): Promise<boolean> {
-  const doc = await GenerationJobModel.findById(jobId, { cancelRequested: 1 }).lean();
-  return Boolean(doc?.cancelRequested);
+  const doc = await GenerationJobModel.findById(jobId, { cancelRequested: 1, pauseRequested: 1 }).lean();
+  return Boolean(doc?.cancelRequested || doc?.pauseRequested);
+}
+
+/** True when a stop was a pause (and not also a cancel). */
+export async function isPauseRequested(jobId: string): Promise<boolean> {
+  const doc = await GenerationJobModel.findById(jobId, { cancelRequested: 1, pauseRequested: 1 }).lean();
+  return Boolean(doc?.pauseRequested && !doc.cancelRequested);
 }

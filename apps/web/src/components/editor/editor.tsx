@@ -61,7 +61,10 @@ export function Editor(props: {
   const announceClaude = useCallback(
     (job: Job) => {
       const result = (job.result ?? {}) as { summary?: string; backup?: string };
-      toast.success(result.summary || "Claude finished the change.", {
+      // The summary can be several paragraphs; the toast shows the first one (clamped).
+      const lead = (result.summary ?? "").trim().split(/\n\s*\n/)[0]?.trim();
+      toast.success(job.type === "agent.generate" ? "Animation finished" : "Claude finished the change", {
+        description: lead || undefined,
         duration: 15000,
         action: result.backup
           ? {

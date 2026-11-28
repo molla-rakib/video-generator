@@ -155,6 +155,16 @@ function TasksMenu() {
                       </button>
                     </div>
                   </>
+                ) : job.status === "paused" ? (
+                  <>
+                    <Progress value={job.progress * 100} className="h-1.5 opacity-60" />
+                    <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span className="truncate">Paused</span>
+                      <button className="flex shrink-0 items-center gap-1 hover:text-foreground" onClick={() => void act(job, "cancel")}>
+                        <X className="size-3" /> Stop
+                      </button>
+                    </div>
+                  </>
                 ) : job.status === "failed" ? (
                   <div className="flex items-start justify-between gap-2 text-xs">
                     <span className="flex gap-1 text-destructive">

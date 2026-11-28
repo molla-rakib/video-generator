@@ -26,6 +26,9 @@ export const POST = apiHandler(async (request: NextRequest, ctx: Context) => {
     if (jobs.some((j) => (j.type === "agent.revise" || j.type === "agent.generate") && (j.status === "pending" || j.status === "running"))) {
       throw new UserFacingError("Claude is already working on this video. Wait for it to finish, or cancel it first.", "agent_busy", 409);
     }
+    if (body.type === "agent.generate" && jobs.some((j) => j.type === "agent.generate" && j.status === "paused")) {
+      throw new UserFacingError("The animation is paused. Resume it, or stop it first.", "agent_paused", 409);
+    }
   }
   const request_ = typeof body.input.request === "string" ? body.input.request.trim() : "";
   const title = body.type === "agent.revise" ? `Claude: “${request_.length > 48 ? `${request_.slice(0, 47)}…` : request_}”` : undefined;

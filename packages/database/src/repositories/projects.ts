@@ -118,7 +118,7 @@ export async function deleteProject(id: string): Promise<{ storagePrefix: string
   const projectId = toObjectId(id, "project");
   await connectDatabase();
   if (!(await ProjectModel.exists({ _id: projectId }))) throw new NotFoundError("project");
-  await GenerationJobModel.updateMany({ projectId, status: { $in: ["pending", "running"] } }, { $set: { cancelRequested: true, status: "cancelled" } });
+  await GenerationJobModel.updateMany({ projectId, status: { $in: ["pending", "running", "paused"] } }, { $set: { cancelRequested: true, status: "cancelled" } });
   await Promise.all([MediaAssetModel.deleteMany({ projectId }), GenerationJobModel.deleteMany({ projectId })]);
   await ProjectModel.deleteOne({ _id: projectId });
   return { storagePrefix: projectFolder(id) };
